@@ -39,16 +39,41 @@ process RUN_AF3_MSA {
     path "${json.baseName}/*/*_data.json"
 
     script:
-    """
-    module load ${params.af3_module}
+    def is_local = workflow.profile?.contains('local')
+    def gpu_id = is_local ? (task.index % params.local_num_gpus) : 0
 
-    mkdir -p ${json.baseName}
+    if (is_local) {
+        """
+        export CUDA_VISIBLE_DEVICES=${gpu_id}
+        mkdir -p ${json.baseName}
 
-    alphafold \\
-        --json_path=${json} \\
-        --output_dir=${json.baseName} \\
-        --run_inference=false
-    """
+        apptainer exec \\
+            --env XLA_FLAGS="--xla_disable_hlo_passes=custom-kernel-fusion-rewriter" \\
+            --nv \\
+            --bind \${PWD}:/root/input \\
+            --bind \${PWD}/${json.baseName}:/root/output \\
+            --bind ${params.af3_model_dir}:/root/models \\
+            --bind ${params.af3_db_dir}:/root/public_databases \\
+            ${params.af3_sif} \\
+            python run_alphafold.py \\
+                --json_path=/root/input/${json} \\
+                --model_dir=/root/models \\
+                --db_dir=/root/public_databases \\
+                --output_dir=/root/output \\
+                --flash_attention_implementation=xla
+        """
+    } else {
+        """
+        module load ${params.af3_module}
+
+        mkdir -p ${json.baseName}
+
+        alphafold \\
+            --json_path=${json} \\
+            --output_dir=${json.baseName} \\
+            --run_inference=false
+        """
+    }
 }
 
 process EXTRACT_MSAS {

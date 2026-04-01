@@ -47,23 +47,54 @@ process RUN_AF3_FOLDING {
     path "${json.baseName}/*/*"
 
     script:
-    """
-    module load ${params.af3_module}
+    def is_local = workflow.profile?.contains('local')
+    def gpu_id = is_local ? (task.index % params.local_num_gpus) : 0
 
-    mkdir -p ${json.baseName}
+    if (is_local) {
+        """
+        export CUDA_VISIBLE_DEVICES=${gpu_id}
+        mkdir -p ${json.baseName}
 
-    alphafold \\
-        --json_path=${json} \\
-        --output_dir=${json.baseName} \\
-        --run_data_pipeline=false
+        apptainer exec \\
+            --env XLA_FLAGS="--xla_disable_hlo_passes=custom-kernel-fusion-rewriter" \\
+            --nv \\
+            --bind \${PWD}:/root/input \\
+            --bind \${PWD}/${json.baseName}:/root/output \\
+            --bind ${params.af3_model_dir}:/root/models \\
+            --bind ${params.af3_db_dir}:/root/public_databases \\
+            ${params.af3_sif} \\
+            python run_alphafold.py \\
+                --json_path=/root/input/${json} \\
+                --model_dir=/root/models \\
+                --db_dir=/root/public_databases \\
+                --output_dir=/root/output \\
+                --flash_attention_implementation=xla \\
+                --run_data_pipeline=false
 
-    # Remove seed folders from AF3 run to save space
-    find ${json.baseName} -type d -name "seed*" -exec rm -rf {} +
+        # Cleanup
+        find ${json.baseName} -type d -name "seed*" -exec rm -rf {} + || true
+        find ${json.baseName} -type f -name "*_data.json" -exec rm -f {} + || true
+        find ${json.baseName} -type f -name "TERMS_OF_USE.md" -exec rm -f {} + || true
+        """
+    } else {
+        """
+        module load ${params.af3_module}
 
-    # Remove _data.json files to save space (already saved from precomputed MSAs)
-    find ${json.baseName} -type f -name "*_data.json" -exec rm -f {} +
+        mkdir -p ${json.baseName}
 
-    # Remove TERMS_OF_USE.md files
-    find ${json.baseName} -type f -name "TERMS_OF_USE.md" -exec rm -f {} +
-    """
+        alphafold \\
+            --json_path=${json} \\
+            --output_dir=${json.baseName} \\
+            --run_data_pipeline=false
+
+        # Remove seed folders from AF3 run to save space
+        find ${json.baseName} -type d -name "seed*" -exec rm -rf {} +
+
+        # Remove _data.json files to save space (already saved from precomputed MSAs)
+        find ${json.baseName} -type f -name "*_data.json" -exec rm -f {} +
+
+        # Remove TERMS_OF_USE.md files
+        find ${json.baseName} -type f -name "TERMS_OF_USE.md" -exec rm -f {} +
+        """
+    }
 }

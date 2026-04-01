@@ -40,6 +40,36 @@ partition: "preempted"
 # conda_env: "phaser"
 # rosetta_conda_env: "rosetta"
 
+# ===== Local Execution Settings =====
+# Required for -profile local
+
+# Apptainer/Singularity AF3 container paths
+# af3_sif: "/path/to/alphafold.sif"
+# af3_model_dir: "/path/to/af3/params"
+# af3_db_dir: "/path/to/af3/public_databases"
+
+# GPU configuration
+# local_num_gpus: 4
+# local_max_parallel_folding: 4
+# local_max_parallel_cpu: 8
+
+# Python environments (uv venvs)
+# local_venv: "/path/to/pairis-venv"           # For general scripts
+# local_rosetta_venv: "/path/to/rosetta-venv"  # For Rosetta analysis
+
+# ===== Setup Guide (local profile) =====
+# 1. Create general venv:
+#    uv venv /path/to/pairis-venv
+#    source /path/to/pairis-venv/bin/activate
+#    uv pip install polars pandas biopython
+#
+# 2. Create Rosetta venv (if running Rosetta analysis):
+#    uv venv /path/to/rosetta-venv
+#    source /path/to/rosetta-venv/bin/activate
+#    uv pip install polars pandas biopython pyrosetta
+#
+# 3. Run: nextflow run main.nf -params-file params.yml -profile local
+
 # ===== Notes =====
 # 1. Ensure input files exist before running
 # 2. BCR FASTA files must have 'heavy'/'light' or 'HC'/'LC' in sequence names

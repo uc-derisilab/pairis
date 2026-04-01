@@ -13,6 +13,22 @@ include { RUN_ROSETTA } from './modules/analysis'
 include { COLLATE_RESULTS } from './modules/analysis'
 
 workflow {
+    // Validate local profile parameters
+    if (workflow.profile?.contains('local')) {
+        if (!params.af3_sif) {
+            error "ERROR: -profile local requires --af3_sif (path to alphafold.sif)"
+        }
+        if (!params.af3_model_dir) {
+            error "ERROR: -profile local requires --af3_model_dir (path to AF3 model params)"
+        }
+        if (!params.af3_db_dir) {
+            error "ERROR: -profile local requires --af3_db_dir (path to AF3 databases)"
+        }
+        if (!params.local_venv) {
+            log.warn "WARNING: --local_venv not set. Python scripts may fail if python is not on PATH."
+        }
+    }
+
     // Load input files
     peptide_fasta = file(params.peptide_fasta)
     bcr_files = Channel.fromPath("${params.bcr_dir}/*.fasta")
