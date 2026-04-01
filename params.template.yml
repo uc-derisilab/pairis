@@ -1,0 +1,47 @@
+# PAIRIS Pipeline Parameters Template
+# Copy this file to your project directory and customize
+
+# ===== Project Settings =====
+project_name: "my_project"
+peptide_fasta: "input/peptides.fasta"
+bcr_dir: "input/bcrs"
+chain_dir: "input/chains"
+
+# ===== Analysis Parameters =====
+# Window sizes for sliding window analysis
+# Use [15, 25] for both 15mer and 25mer windows
+# Use [15] for only 15mer windows
+# Use null for full-length sequences (no sliding window)
+window_sizes: [15, 25]
+
+# Number of AlphaFold3 model seeds (diversity in predictions)
+num_seeds: 100
+
+# ===== Workflow Stages =====
+# Control which stages of the pipeline to run
+run_msa_generation: true
+run_structure_prediction: true
+run_rosetta_analysis: true
+
+# ===== Output Directories =====
+# Small outputs (MSAs, Rosetta results, reports)
+outdir: "results"
+
+# Large AF3 outputs (IMPORTANT: Use shared/group storage location for better quota)
+# Replace "my_project" with your actual project name
+af3_output_dir: "/path/to/shared_storage/my_project"
+
+# ===== SLURM Settings =====
+partition: "preempted"
+
+# ===== Environment Settings =====
+# Uncomment and override if your cluster uses different names
+# af3_module: "alphafold/3.0.1-23-g792e61e"
+# conda_env: "phaser"
+# rosetta_conda_env: "rosetta"
+
+# ===== Notes =====
+# 1. Ensure input files exist before running
+# 2. BCR FASTA files must have 'heavy'/'light' or 'HC'/'LC' in sequence names
+# 3. Create af3_output_dir before running: mkdir -p /path/to/shared_storage/my_project
+# 4. Run with: nextflow run main.nf -params-file params.yml

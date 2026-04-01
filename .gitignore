@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Nextflow
+work/
+.nextflow/
+.nextflow.log*
+.nextflow.pid
+
+# Results and outputs
+results/
+
+# User-specific config (users copy params.template.yml)
+params.yml
+
+# OS
+.DS_Store
+Thumbs.db
