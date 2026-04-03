@@ -63,7 +63,7 @@ process RUN_AF3_FOLDING {
             --bind ${params.af3_model_dir}:/root/models \\
             --bind ${params.af3_db_dir}:/root/public_databases \\
             ${params.af3_sif} \\
-            python run_alphafold.py \\
+            python /app/alphafold/run_alphafold.py \\
                 --json_path=/root/input/${json} \\
                 --model_dir=/root/models \\
                 --db_dir=/root/public_databases \\

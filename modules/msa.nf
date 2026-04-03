@@ -44,23 +44,20 @@ process RUN_AF3_MSA {
 
     if (is_local) {
         """
-        export CUDA_VISIBLE_DEVICES=${gpu_id}
         mkdir -p ${json.baseName}
 
         apptainer exec \\
-            --env XLA_FLAGS="--xla_disable_hlo_passes=custom-kernel-fusion-rewriter" \\
-            --nv \\
             --bind \${PWD}:/root/input \\
             --bind \${PWD}/${json.baseName}:/root/output \\
             --bind ${params.af3_model_dir}:/root/models \\
             --bind ${params.af3_db_dir}:/root/public_databases \\
             ${params.af3_sif} \\
-            python run_alphafold.py \\
+            python /app/alphafold/run_alphafold.py \\
                 --json_path=/root/input/${json} \\
                 --model_dir=/root/models \\
                 --db_dir=/root/public_databases \\
                 --output_dir=/root/output \\
-                --flash_attention_implementation=xla
+                --run_inference=false
         """
     } else {
         """
