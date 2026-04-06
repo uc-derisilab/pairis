@@ -17,6 +17,9 @@ window_sizes: [15, 25]
 # Number of AlphaFold3 model seeds (diversity in predictions)
 num_seeds: 100
 
+# Number of diffusion samples per seed in AF3 folding
+num_diffusion_samples: 5
+
 # ===== Workflow Stages =====
 # Control which stages of the pipeline to run
 run_msa_generation: true

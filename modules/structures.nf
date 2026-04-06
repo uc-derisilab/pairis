@@ -83,7 +83,8 @@ process RUN_AF3_FOLDING {
                 --db_dir=/root/public_databases \\
                 --output_dir=/root/output \\
                 --flash_attention_implementation=xla \\
-                --run_data_pipeline=false
+                --run_data_pipeline=false \\
+                --num_diffusion_samples=${params.num_diffusion_samples}
 
         # Cleanup
         find ${json.baseName} -type d -name "seed*" -exec rm -rf {} + || true
@@ -99,7 +100,8 @@ process RUN_AF3_FOLDING {
         alphafold \\
             --json_path=${json} \\
             --output_dir=${json.baseName} \\
-            --run_data_pipeline=false
+            --run_data_pipeline=false \\
+            --num_diffusion_samples=${params.num_diffusion_samples}
 
         # Remove seed folders from AF3 run to save space
         find ${json.baseName} -type d -name "seed*" -exec rm -rf {} +
