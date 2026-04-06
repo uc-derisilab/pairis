@@ -5,6 +5,7 @@ nextflow.enable.dsl=2
 include { GENERATE_MSA_INPUTS as GEN_MSA_PEPTIDES } from './modules/msa'
 include { GENERATE_MSA_INPUTS as GEN_MSA_BCRS } from './modules/msa'
 include { RUN_AF3_MSA } from './modules/msa'
+include { RUN_ALPHAFAST_MSA } from './modules/msa'
 include { EXTRACT_MSAS } from './modules/msa'
 include { GENERATE_COMPLEX_INPUTS } from './modules/structures'
 include { RUN_AF3_FOLDING } from './modules/structures'
@@ -26,6 +27,16 @@ workflow {
         }
         if (!params.local_venv) {
             log.warn "WARNING: --local_venv not set. Python scripts may fail if python is not on PATH."
+        }
+    }
+
+    // Validate AlphaFast params (applies to all profiles)
+    if (params.msa_engine == 'alphafast') {
+        if (!params.alphafast_sif) {
+            error "ERROR: msa_engine='alphafast' requires --alphafast_sif (path to alphafast.sif)"
+        }
+        if (!params.alphafast_mmseqs_db_dir) {
+            error "ERROR: msa_engine='alphafast' requires --alphafast_mmseqs_db_dir (path to MMseqs2 padded databases)"
         }
     }
 
@@ -60,8 +71,12 @@ workflow {
             .flatten()
             .mix(bcr_msa_jsons.flatten())
 
-        // Run AF3 for MSA generation
-        msa_outputs = RUN_AF3_MSA(all_msa_jsons)
+        // Run MSA generation (engine selected by params.msa_engine)
+        if (params.msa_engine == 'alphafast') {
+            msa_outputs = RUN_ALPHAFAST_MSA(all_msa_jsons)
+        } else {
+            msa_outputs = RUN_AF3_MSA(all_msa_jsons)
+        }
 
         // Extract MSAs and build index
         extraction_results = EXTRACT_MSAS(msa_outputs.collect())
@@ -161,4 +176,30 @@ workflow.onComplete {
         println "AF3 structures: ${params.af3_output_dir}/af3_outputs/complexes"
     }
     println ""
+
+    // Generate timing summary from trace.txt.
+    // Sleep briefly so the async trace writer has time to flush the last records.
+    try {
+        Thread.sleep(2000)
+        def traceFile   = "${params.outdir}/reports/trace.txt"
+        def summaryFile = "${params.outdir}/reports/timing_summary.txt"
+        def cmd = [
+            "python3",
+            "${projectDir}/bin/generate_timing_summary.py",
+            "--trace", traceFile,
+            "--output", summaryFile,
+            "--pipeline-duration", workflow.duration.toString()
+        ]
+        def proc = cmd.execute()
+        proc.waitFor()
+        def out = proc.text.trim()
+        if (out) {
+            println out
+            println ""
+        }
+        println "Timing summary written to: ${summaryFile}"
+        println ""
+    } catch (Exception e) {
+        log.warn "Could not generate timing summary: ${e.message}"
+    }
 }

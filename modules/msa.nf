@@ -73,6 +73,70 @@ process RUN_AF3_MSA {
     }
 }
 
+process RUN_ALPHAFAST_MSA {
+    tag "${json.baseName}"
+    label 'alphafast_msa'
+
+    errorStrategy 'retry'
+    maxRetries 3
+
+    publishDir "${params.af3_output_dir}/af3_outputs/msa_only", mode: 'copy'
+
+    input:
+    path json
+
+    output:
+    path "${json.baseName}/*/*_data.json"
+
+    script:
+    def is_local = workflow.profile?.contains('local')
+    def temp_flag = params.alphafast_temp_dir ? "--temp_dir=${params.alphafast_temp_dir}" : ""
+
+    if (is_local) {
+        def gpu_id = task.index % params.local_num_gpus
+        """
+        mkdir -p ${json.baseName}
+
+        apptainer exec \\
+            --nv \\
+            --bind \${PWD}:/root/input \\
+            --bind \${PWD}/${json.baseName}:/root/output \\
+            --bind ${params.af3_db_dir}:/root/public_databases \\
+            --bind ${params.alphafast_mmseqs_db_dir}:/root/mmseqs_databases \\
+            ${params.alphafast_sif} \\
+            python3 /app/alphafold/run_data_pipeline.py \\
+                --json_path=/root/input/${json} \\
+                --db_dir=/root/public_databases \\
+                --mmseqs_db_dir=/root/mmseqs_databases \\
+                --output_dir=/root/output \\
+                --use_mmseqs_gpu \\
+                --gpu_device=${gpu_id} \\
+                --mmseqs_sensitivity=${params.alphafast_sensitivity} \\
+                ${temp_flag}
+        """
+    } else {
+        """
+        mkdir -p ${json.baseName}
+
+        apptainer exec \\
+            --nv \\
+            --bind \${PWD}:/root/input \\
+            --bind \${PWD}/${json.baseName}:/root/output \\
+            --bind ${params.af3_db_dir}:/root/public_databases \\
+            --bind ${params.alphafast_mmseqs_db_dir}:/root/mmseqs_databases \\
+            ${params.alphafast_sif} \\
+            python3 /app/alphafold/run_data_pipeline.py \\
+                --json_path=/root/input/${json} \\
+                --db_dir=/root/public_databases \\
+                --mmseqs_db_dir=/root/mmseqs_databases \\
+                --output_dir=/root/output \\
+                --use_mmseqs_gpu \\
+                --mmseqs_sensitivity=${params.alphafast_sensitivity} \\
+                ${temp_flag}
+        """
+    }
+}
+
 process EXTRACT_MSAS {
     label 'extract'
 
