@@ -12,6 +12,7 @@ process GENERATE_COMPLEX_INPUTS {
     val window_size  // 0 for full sequence, or positive integer for sliding windows
     val num_seeds
     path msa_index  // MSA index file (optional)
+    path msa_dir    // staged MSA directory — guarantees files exist before os.path.exists() checks
 
     output:
     path "*.json"
@@ -19,6 +20,7 @@ process GENERATE_COMPLEX_INPUTS {
     script:
     def sliding_args = (window_size && window_size > 0) ? "--sliding -k ${window_size}" : ""
     def msa_arg = msa_index.name != 'NO_FILE' ? "--msa-index ${msa_index}" : ""
+    def msa_dir_arg = msa_dir.name != 'NO_MSA_DIR' ? "--msa-dir ${msa_dir}" : ""
     """
     python ${projectDir}/bin/generate_complex_inputs.py \\
         --peptide-fasta ${peptide_fasta} \\
@@ -27,7 +29,8 @@ process GENERATE_COMPLEX_INPUTS {
         --output-dir . \\
         --num-seeds ${num_seeds} \\
         ${sliding_args} \\
-        ${msa_arg}
+        ${msa_arg} \\
+        ${msa_dir_arg}
     """
 }
 
@@ -48,11 +51,22 @@ process RUN_AF3_FOLDING {
 
     script:
     def is_local = workflow.profile?.contains('local')
-    def gpu_id = is_local ? (task.index % params.local_num_gpus) : 0
 
     if (is_local) {
         """
-        export CUDA_VISIBLE_DEVICES=${gpu_id}
+        GPU_ID=-1
+        for gpu_id in \$(seq 0 \$(( ${params.local_num_gpus} - 1 ))); do
+            lockdir="/tmp/pairis_gpu_\${gpu_id}.lock"
+            if mkdir "\$lockdir" 2>/dev/null; then
+                GPU_ID=\$gpu_id
+                trap "rmdir '\$lockdir' 2>/dev/null || true" EXIT
+                break
+            fi
+        done
+        if [ \$GPU_ID -eq -1 ]; then
+            echo "ERROR: no free GPU slot (all ${params.local_num_gpus} locked)" >&2; exit 1
+        fi
+        export CUDA_VISIBLE_DEVICES=\$GPU_ID
         mkdir -p ${json.baseName}
 
         apptainer exec \\

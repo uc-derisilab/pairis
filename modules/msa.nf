@@ -82,9 +82,7 @@ process EXTRACT_MSAS {
     path data_jsons
 
     output:
-    path "msas/*/*.a3m", emit: msa_files
-    path "msas/*/metadata.json", emit: metadata_files
-    path "msas/*/templates/*.cif", optional: true, emit: template_files
+    path "msas", emit: msa_dir
     path "msa_index.json", emit: index
 
     script:

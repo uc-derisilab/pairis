@@ -36,9 +36,30 @@ def get_msa_data(msa_index: Dict, seq_key: str) -> Optional[Dict]:
     return None
 
 
-def load_template_data(msa_data: Dict) -> list:
+def staged_seq_dir(msa_data: Dict, staged_msa_dir: Optional[str]) -> Optional[Path]:
+    """Return the staged directory for this sequence, or None if no staged dir."""
+    if not staged_msa_dir:
+        return None
+    return Path(staged_msa_dir) / Path(msa_data['msa_dir']).name
+
+
+def msa_exists(msa_data: Dict, staged_msa_dir: Optional[str]) -> bool:
+    """Check that the unpaired MSA exists, using the staged directory when available."""
+    seq_dir = staged_seq_dir(msa_data, staged_msa_dir)
+    if seq_dir is not None:
+        return (seq_dir / 'unpaired_msa.a3m').exists()
+    return os.path.exists(msa_data['unpaired_msa'])
+
+
+def load_template_data(msa_data: Dict, staged_msa_dir: Optional[str] = None) -> list:
     """Load template information from metadata.json."""
-    metadata_path = Path(msa_data['msa_dir']) / 'metadata.json'
+    seq_dir = staged_seq_dir(msa_data, staged_msa_dir)
+    if seq_dir is not None:
+        metadata_path = seq_dir / 'metadata.json'
+        templates_base = seq_dir / 'templates'
+    else:
+        metadata_path = Path(msa_data['msa_dir']) / 'metadata.json'
+        templates_base = Path(msa_data['templates_dir'])
 
     if not metadata_path.exists():
         return []
@@ -54,13 +75,13 @@ def load_template_data(msa_data: Dict) -> list:
         return []
 
     templates = []
-    templates_dir = Path(msa_data['templates_dir'])
-
     for i, template_meta in enumerate(metadata.get('templates', [])):
-        template_cif = templates_dir / f'template_{i}.cif'
+        template_cif = templates_base / f'template_{i}.cif'
         if template_cif.exists():
+            # mmcifPath must point to the published location for AF3 to resolve later
+            published_cif = Path(msa_data['templates_dir']) / f'template_{i}.cif'
             templates.append({
-                'mmcifPath': str(template_cif.absolute()),
+                'mmcifPath': str(published_cif),
                 'queryIndices': template_meta['queryIndices'],
                 'templateIndices': template_meta['templateIndices']
             })
@@ -109,6 +130,8 @@ def main():
                         help="Number of model seeds to generate (default: 100)")
     parser.add_argument("--msa-index", type=str, default=None,
                         help="JSON file mapping sequence IDs to MSA paths (optional)")
+    parser.add_argument("--msa-dir", type=str, default=None,
+                        help="Staged MSA directory (Nextflow-guaranteed to exist before script runs)")
 
     args = parser.parse_args()
 
@@ -119,6 +142,8 @@ def main():
     msa_index = load_msa_index(args.msa_index)
     if msa_index:
         print(f"Loaded MSA index with {len(msa_index)} entries")
+
+    staged_msa_dir = args.msa_dir if args.msa_dir else None
 
     # Parse input files
     peptide_sequences = parse_fasta(args.peptide_fasta)
@@ -151,43 +176,31 @@ def main():
                 # Create peptide sequence with MSA paths
                 peptide_entry = create_protein_sequence("A", window_seq)
                 msa_data = get_msa_data(msa_index, window_name)
-                if msa_data:
-                    if os.path.exists(msa_data['unpaired_msa']):
-                        peptide_entry['protein']['unpairedMsaPath'] = msa_data['unpaired_msa']
-                        if os.path.exists(msa_data['paired_msa']):
-                            peptide_entry['protein']['pairedMsaPath'] = msa_data['paired_msa']
-
-                        # Always add templates field (empty array if none available)
-                        templates = load_template_data(msa_data)
-                        peptide_entry['protein']['templates'] = templates if templates else []
+                if msa_data and msa_exists(msa_data, staged_msa_dir):
+                    peptide_entry['protein']['unpairedMsaPath'] = msa_data['unpaired_msa']
+                    peptide_entry['protein']['pairedMsaPath'] = msa_data['paired_msa']
+                    templates = load_template_data(msa_data, staged_msa_dir)
+                    peptide_entry['protein']['templates'] = templates if templates else []
 
                 # Create heavy chain with MSA paths
                 heavy_entry = create_protein_sequence("B", heavy_chain)
                 heavy_key = heavy_id
                 heavy_data = get_msa_data(msa_index, heavy_key)
-                if heavy_data:
-                    if os.path.exists(heavy_data['unpaired_msa']):
-                        heavy_entry['protein']['unpairedMsaPath'] = heavy_data['unpaired_msa']
-                        if os.path.exists(heavy_data['paired_msa']):
-                            heavy_entry['protein']['pairedMsaPath'] = heavy_data['paired_msa']
-
-                        # Always add templates field (empty array if none available)
-                        templates = load_template_data(heavy_data)
-                        heavy_entry['protein']['templates'] = templates if templates else []
+                if heavy_data and msa_exists(heavy_data, staged_msa_dir):
+                    heavy_entry['protein']['unpairedMsaPath'] = heavy_data['unpaired_msa']
+                    heavy_entry['protein']['pairedMsaPath'] = heavy_data['paired_msa']
+                    templates = load_template_data(heavy_data, staged_msa_dir)
+                    heavy_entry['protein']['templates'] = templates if templates else []
 
                 # Create light chain with MSA paths
                 light_entry = create_protein_sequence("C", light_chain)
                 light_key = light_id
                 light_data = get_msa_data(msa_index, light_key)
-                if light_data:
-                    if os.path.exists(light_data['unpaired_msa']):
-                        light_entry['protein']['unpairedMsaPath'] = light_data['unpaired_msa']
-                        if os.path.exists(light_data['paired_msa']):
-                            light_entry['protein']['pairedMsaPath'] = light_data['paired_msa']
-
-                        # Always add templates field (empty array if none available)
-                        templates = load_template_data(light_data)
-                        light_entry['protein']['templates'] = templates if templates else []
+                if light_data and msa_exists(light_data, staged_msa_dir):
+                    light_entry['protein']['unpairedMsaPath'] = light_data['unpaired_msa']
+                    light_entry['protein']['pairedMsaPath'] = light_data['paired_msa']
+                    templates = load_template_data(light_data, staged_msa_dir)
+                    light_entry['protein']['templates'] = templates if templates else []
 
                 sequences = [peptide_entry, heavy_entry, light_entry]
 
@@ -207,43 +220,31 @@ def main():
             # Create peptide sequence with MSA paths
             peptide_entry = create_protein_sequence("A", peptide_seq)
             msa_data = get_msa_data(msa_index, peptide_name)
-            if msa_data:
-                if os.path.exists(msa_data['unpaired_msa']):
-                    peptide_entry['protein']['unpairedMsaPath'] = msa_data['unpaired_msa']
-                    if os.path.exists(msa_data['paired_msa']):
-                        peptide_entry['protein']['pairedMsaPath'] = msa_data['paired_msa']
-
-                    # Always add templates field (empty array if none available)
-                    templates = load_template_data(msa_data)
-                    peptide_entry['protein']['templates'] = templates if templates else []
+            if msa_data and msa_exists(msa_data, staged_msa_dir):
+                peptide_entry['protein']['unpairedMsaPath'] = msa_data['unpaired_msa']
+                peptide_entry['protein']['pairedMsaPath'] = msa_data['paired_msa']
+                templates = load_template_data(msa_data, staged_msa_dir)
+                peptide_entry['protein']['templates'] = templates if templates else []
 
             # Create heavy chain with MSA paths
             heavy_entry = create_protein_sequence("B", heavy_chain)
             heavy_key = heavy_id
             heavy_data = get_msa_data(msa_index, heavy_key)
-            if heavy_data:
-                if os.path.exists(heavy_data['unpaired_msa']):
-                    heavy_entry['protein']['unpairedMsaPath'] = heavy_data['unpaired_msa']
-                    if os.path.exists(heavy_data['paired_msa']):
-                        heavy_entry['protein']['pairedMsaPath'] = heavy_data['paired_msa']
-
-                    # Always add templates field (empty array if none available)
-                    templates = load_template_data(heavy_data)
-                    heavy_entry['protein']['templates'] = templates if templates else []
+            if heavy_data and msa_exists(heavy_data, staged_msa_dir):
+                heavy_entry['protein']['unpairedMsaPath'] = heavy_data['unpaired_msa']
+                heavy_entry['protein']['pairedMsaPath'] = heavy_data['paired_msa']
+                templates = load_template_data(heavy_data, staged_msa_dir)
+                heavy_entry['protein']['templates'] = templates if templates else []
 
             # Create light chain with MSA paths
             light_entry = create_protein_sequence("C", light_chain)
             light_key = light_id
             light_data = get_msa_data(msa_index, light_key)
-            if light_data:
-                if os.path.exists(light_data['unpaired_msa']):
-                    light_entry['protein']['unpairedMsaPath'] = light_data['unpaired_msa']
-                    if os.path.exists(light_data['paired_msa']):
-                        light_entry['protein']['pairedMsaPath'] = light_data['paired_msa']
-
-                    # Always add templates field (empty array if none available)
-                    templates = load_template_data(light_data)
-                    light_entry['protein']['templates'] = templates if templates else []
+            if light_data and msa_exists(light_data, staged_msa_dir):
+                light_entry['protein']['unpairedMsaPath'] = light_data['unpaired_msa']
+                light_entry['protein']['pairedMsaPath'] = light_data['paired_msa']
+                templates = load_template_data(light_data, staged_msa_dir)
+                light_entry['protein']['templates'] = templates if templates else []
 
             sequences = [peptide_entry, heavy_entry, light_entry]
 
