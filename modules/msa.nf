@@ -93,8 +93,21 @@ process RUN_ALPHAFAST_MSA {
     def temp_flag = params.alphafast_temp_dir ? "--temp_dir=${params.alphafast_temp_dir}" : ""
 
     if (is_local) {
-        def gpu_id = task.index % params.local_num_gpus
         """
+        GPU_ID=-1
+        for gpu_id in \$(seq 0 \$(( ${params.local_num_gpus} - 1 ))); do
+            lockdir="/tmp/pairis_gpu_\${gpu_id}.lock"
+            if mkdir "\$lockdir" 2>/dev/null; then
+                GPU_ID=\$gpu_id
+                trap "rmdir '\$lockdir' 2>/dev/null || true" EXIT
+                break
+            fi
+        done
+        if [ \$GPU_ID -eq -1 ]; then
+            echo "ERROR: no free GPU slot (all ${params.local_num_gpus} locked)" >&2; exit 1
+        fi
+        export CUDA_VISIBLE_DEVICES=\$GPU_ID
+
         mkdir -p ${json.baseName}
 
         apptainer exec \\
@@ -110,7 +123,6 @@ process RUN_ALPHAFAST_MSA {
                 --mmseqs_db_dir=/root/mmseqs_databases \\
                 --output_dir=/root/output \\
                 --use_mmseqs_gpu \\
-                --gpu_device=${gpu_id} \\
                 --mmseqs_sensitivity=${params.alphafast_sensitivity} \\
                 ${temp_flag}
         """
