@@ -91,6 +91,7 @@ process RUN_ALPHAFAST_MSA {
     script:
     def is_local = workflow.profile?.contains('local')
     def temp_flag = params.alphafast_temp_dir ? "--temp_dir=${params.alphafast_temp_dir}" : ""
+    def mmseqs_bind = params.alphafast_mmseqs_binary ? "--bind ${params.alphafast_mmseqs_binary}:/usr/local/bin/mmseqs" : ""
 
     if (is_local) {
         """
@@ -116,6 +117,7 @@ process RUN_ALPHAFAST_MSA {
             --bind \${PWD}/${json.baseName}:/root/output \\
             --bind ${params.af3_db_dir}:/root/public_databases \\
             --bind ${params.alphafast_mmseqs_db_dir}:/root/mmseqs_databases \\
+            ${mmseqs_bind} \\
             ${params.alphafast_sif} \\
             python3 /app/alphafold/run_data_pipeline.py \\
                 --json_path=/root/input/${json} \\
@@ -136,6 +138,7 @@ process RUN_ALPHAFAST_MSA {
             --bind \${PWD}/${json.baseName}:/root/output \\
             --bind ${params.af3_db_dir}:/root/public_databases \\
             --bind ${params.alphafast_mmseqs_db_dir}:/root/mmseqs_databases \\
+            ${mmseqs_bind} \\
             ${params.alphafast_sif} \\
             python3 /app/alphafold/run_data_pipeline.py \\
                 --json_path=/root/input/${json} \\
