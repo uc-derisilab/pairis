@@ -39,16 +39,38 @@ process RUN_AF3_MSA {
     path "${json.baseName}/*/*_data.json"
 
     script:
-    """
-    module load ${params.af3_module}
+    def is_local = workflow.profile?.contains('local')
+    def gpu_id = is_local ? (task.index % params.local_num_gpus) : 0
 
-    mkdir -p ${json.baseName}
+    if (is_local) {
+        """
+        mkdir -p ${json.baseName}
 
-    alphafold \\
-        --json_path=${json} \\
-        --output_dir=${json.baseName} \\
-        --run_inference=false
-    """
+        apptainer exec \\
+            --bind \${PWD}:/root/input \\
+            --bind \${PWD}/${json.baseName}:/root/output \\
+            --bind ${params.af3_model_dir}:/root/models \\
+            --bind ${params.af3_db_dir}:/root/public_databases \\
+            ${params.af3_sif} \\
+            python /app/alphafold/run_alphafold.py \\
+                --json_path=/root/input/${json} \\
+                --model_dir=/root/models \\
+                --db_dir=/root/public_databases \\
+                --output_dir=/root/output \\
+                --run_inference=false
+        """
+    } else {
+        """
+        module load ${params.af3_module}
+
+        mkdir -p ${json.baseName}
+
+        alphafold \\
+            --json_path=${json} \\
+            --output_dir=${json.baseName} \\
+            --run_inference=false
+        """
+    }
 }
 
 process EXTRACT_MSAS {
@@ -60,9 +82,7 @@ process EXTRACT_MSAS {
     path data_jsons
 
     output:
-    path "msas/*/*.a3m", emit: msa_files
-    path "msas/*/metadata.json", emit: metadata_files
-    path "msas/*/templates/*.cif", optional: true, emit: template_files
+    path "msas", emit: msa_dir
     path "msa_index.json", emit: index
 
     script:
