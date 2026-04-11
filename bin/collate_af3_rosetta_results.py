@@ -149,6 +149,37 @@ def collate_bcr_data(af3_input_dir, af3_output_dir, rosetta_dir, bcr, kmer_size)
 
     rosetta_csv_files = list(rosetta_bcr_dir.glob("*_rosetta.csv"))
 
+    # Full-length run (window_sizes: null): no window, one structure per BCR-peptide
+    if kmer_size == 'full':
+        for csv_file in rosetta_csv_files:
+            peptide_name, _, _ = parse_pairis_filename(csv_file.stem)
+            if not peptide_name:
+                print(f"Warning: Could not parse filename: {csv_file.name}")
+                continue
+            try:
+                rosetta_df = pd.read_csv(csv_file)
+            except Exception as e:
+                print(f"Error reading {csv_file}: {e}")
+                continue
+            for _, row in rosetta_df.iterrows():
+                binding_energy = row.get('binding_energy', None)
+                outer_dir = f"{peptide_name}_{bcr}"
+                inner_dir = outer_dir.lower()
+                af3_input_json = Path(af3_input_dir) / f"{outer_dir}.json"
+                peptide_seq = extract_peptide_sequence(af3_input_json) if af3_input_json.exists() else None
+                base_path = Path(af3_output_dir) / outer_dir / inner_dir
+                af3_output_json = base_path / f"{inner_dir}_summary_confidences.json"
+                iptm = extract_iptm(af3_output_json) if af3_output_json.exists() else None
+                results.append({
+                    'peptide_name': peptide_name,
+                    'window': None,
+                    'peptide_sequence': peptide_seq,
+                    'kmer_size': None,
+                    'iptm': iptm,
+                    'binding_energy': binding_energy
+                })
+        return results
+
     for csv_file in rosetta_csv_files:
         # Parse peptide name from filename
         peptide_name, _, _ = parse_pairis_filename(csv_file.stem)
@@ -229,7 +260,7 @@ def main():
     # Find all kmer size directories
     kmer_sizes = []
     for item in rosetta_base.iterdir():
-        if item.is_dir() and 'mers' in item.name:
+        if item.is_dir() and ('mers' in item.name or item.name == 'full'):
             kmer_sizes.append(item.name)
             # Get BCRs from this kmer directory
             for bcr_dir in item.iterdir():
