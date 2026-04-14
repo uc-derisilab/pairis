@@ -36,10 +36,13 @@ def main():
 
     for dir_name in dirs:
         m = suffix_re.search(dir_name)
-        if not m:
-            continue
-        kmer = m.group(1)
-        prefix = dir_name[:m.start()]   # e.g. "antiHu_pep_108_HC_100_LC"
+        if m:
+            kmer_label = f"{m.group(1)}mers"
+            prefix = dir_name[:m.start()]   # e.g. "antiHu_pep_108_HC_100_LC"
+        else:
+            # No window suffix: full-length sequence run (window_sizes: null)
+            kmer_label = "full"
+            prefix = dir_name
 
         # Try each split point left-to-right until a BCR match is found
         parts = prefix.split('_')
@@ -47,7 +50,7 @@ def main():
             candidate_bcr = '_'.join(parts[i:])
             if candidate_bcr in bcr_set:
                 peptide = '_'.join(parts[:i])
-                groups.add((f"{kmer}mers", candidate_bcr, peptide))
+                groups.add((kmer_label, candidate_bcr, peptide))
                 break
 
     # Write groups to file (one per line: kmer_size,bcr,peptide,complexes_dir)

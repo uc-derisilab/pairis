@@ -394,7 +394,19 @@ def process_cif_directory(input_dir, reference_file=None, interface_mode=None, p
             pattern_regex = re.escape(f'{pattern}_') + r'(\d+)mer_window_\d+'
             match = re.match(pattern_regex, subdir.name)
             if not match:
-                continue  # Skip directories that don't match the exact pattern
+                # Also handle full-length (no window suffix): directory name exactly matches pattern
+                if subdir.name != pattern:
+                    continue
+                if expected_kmer_size and expected_kmer_size.rstrip('s') != 'full':
+                    continue
+                # Mirror the non-window nested-dir logic: lowercase + hyphen normalisation
+                nested_subdir = subdir / subdir.name.lower().replace('-', '_')
+                found_cifs = (list(nested_subdir.glob("*_model.cif"))
+                              if nested_subdir.exists() and nested_subdir.is_dir()
+                              else list(subdir.rglob("*_model.cif")))
+                if found_cifs:
+                    cif_files.append(found_cifs[0])
+                continue
 
             # Extract kmer size from directory name (captured group 1 from regex)
             kmer_size = match.group(1) + 'mer'
