@@ -31,6 +31,10 @@ workflow {
 
     // Load input files
     peptide_fasta = file(params.peptide_fasta)
+    peptide_records = peptide_fasta.text
+        .readLines()
+        .findAll { it.startsWith('>') }
+        .collect { it.substring(1).split(/\s+/)[0] }
     bcr_files = Channel.fromPath("${params.bcr_dir}/*.fasta")
 
     // Initialize structures channel
@@ -80,8 +84,17 @@ workflow {
     if (params.run_structure_prediction) {
         // Generate complex JSONs for each BCR with peptides
         if (params.window_sizes) {
-            inputs = bcr_files
+            // Filter out BCR+window combos where all (peptide_record × BCR × window) JSONs exist
+            bcr_window_pairs = bcr_files
                 .combine(Channel.from(params.window_sizes))
+                .filter { bcr, ws ->
+                    peptide_records.any { rec ->
+                        def existing = file("${params.outdir}/af3_inputs/complexes/${rec}_${bcr.baseName}_${ws}mer_*.json")
+                        (existing instanceof List ? existing.size() : (existing.exists() ? 1 : 0)) == 0
+                    }
+                }
+
+            inputs = bcr_window_pairs
                 .combine(msa_index_file)
                 .combine(msa_dir)
                 .multiMap { bcr, ws, msa_idx, msa_d ->
@@ -102,10 +115,16 @@ workflow {
                 inputs.msa_directory
             )
         } else {
-            // No sliding window, use full sequences
+            // No sliding window — keep BCRs missing ANY (peptide_record × BCR) JSON
+            new_bcr_files = bcr_files.filter { bcr ->
+                peptide_records.any { rec ->
+                    !file("${params.outdir}/af3_inputs/complexes/${rec}_${bcr.baseName}.json").exists()
+                }
+            }
+
             complex_jsons = GENERATE_COMPLEX_INPUTS(
                 peptide_fasta,
-                bcr_files,
+                new_bcr_files,
                 0,
                 params.num_seeds,
                 msa_index_file,
@@ -113,8 +132,19 @@ workflow {
             )
         }
 
-        // Run AF3 for structure prediction
-        structures = RUN_AF3_FOLDING(complex_jsons.flatten())
+        // Combine newly generated JSONs with existing ones, then filter out
+        // any that already have completed structures (model.cif exists)
+        all_jsons = complex_jsons.flatten()
+            .mix(Channel.fromPath("${params.outdir}/af3_inputs/complexes/*.json"))
+            .unique { it.baseName }
+
+        jsons_to_fold = all_jsons.filter { json ->
+            def existing = file("${params.af3_output_dir}/af3_outputs/complexes/${json.baseName}/*/*_model.cif")
+            existing instanceof List ? existing.size() == 0 : !existing.exists()
+        }
+
+        // Run AF3 for structure prediction (only for missing structures)
+        structures = RUN_AF3_FOLDING(jsons_to_fold)
     } else {
         // Load existing structures from previous run
         structures = Channel.fromPath("${params.af3_output_dir}/af3_outputs/complexes/*/*/*_model*.cif")
@@ -140,11 +170,17 @@ workflow {
         // Combine with complexes_dir to create full tuple
         bcr_groups = groups_info.combine(complexes_dir)
 
-        // Process each BCR-peptide group
-        rosetta_results = RUN_ROSETTA(bcr_groups)
+        // Skip groups whose Rosetta CSV is already published
+        new_bcr_groups = bcr_groups.filter { kmer_size, bcr_name, peptide_name, dir ->
+            !file("${params.af3_output_dir}/results/rosetta/${kmer_size}/${bcr_name}/${peptide_name}_rosetta.csv").exists()
+        }
 
-        // Collate AF3 iPTM scores and Rosetta binding energies
-        collated_results = COLLATE_RESULTS(rosetta_results.collect().map { true })
+        // Process each BCR-peptide group
+        rosetta_results = RUN_ROSETTA(new_bcr_groups)
+
+        // Collate AF3 iPTM scores and Rosetta binding energies.
+        // ifEmpty ensures collation runs even when all Rosetta groups were cached.
+        collated_results = COLLATE_RESULTS(rosetta_results.collect().map { true }.ifEmpty(true))
     }
 }
 
