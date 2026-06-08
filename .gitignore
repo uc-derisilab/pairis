@@ -12,9 +12,6 @@ work/
 # Results and outputs
 results/
 
-# User-specific config (users copy params.template.yml)
-params.yml
-
 # OS
 .DS_Store
 Thumbs.db

@@ -40,7 +40,7 @@ partition: "preempted"
 # ===== Environment Settings =====
 # Uncomment and override if your cluster uses different names
 # af3_module: "alphafold/3.0.1-23-g792e61e"
-# conda_env: "phaser"
+# conda_env: "pairis"
 # rosetta_conda_env: "rosetta"
 
 # ===== Local Execution Settings =====

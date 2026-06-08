@@ -66,7 +66,7 @@ This document describes the default computational resources allocated to each pr
 **RUN_ROSETTA** (label: `rosetta`)
 - Performs Rosetta InterfaceAnalyzer energy calculations
 - Most resource-intensive CPU process (8 hour time limit)
-- Uses `rosetta` conda environment instead of `phaser`
+- Uses the `rosetta_conda_env` environment instead of the default `conda_env`
 - Array submission for parallel processing (up to 10,000 jobs)
 - Retry strategy: 2 attempts on failure
 
@@ -113,8 +113,8 @@ extract_partition: 'cpu'
 
 ## Environment Configuration
 
-- **Default Environment**: All processes use `mamba activate phaser`
-- **Rosetta Environment**: RUN_ROSETTA process uses `mamba activate rosetta`
+- **Default Environment**: All processes run `mamba activate <conda_env>` (default `pairis`)
+- **Rosetta Environment**: RUN_ROSETTA runs `mamba activate <rosetta_conda_env>` (default `rosetta`)
 - **AlphaFold3**: RUN_AF3_MSA and RUN_AF3_FOLDING load `module load alphafold/3.0.1-23-g792e61e`
 
 ## Array Job Limits
