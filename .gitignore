@@ -15,3 +15,8 @@ results/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local demo run artifacts (cluster-specific paths/env names — not for distribution)
+demo/params.slurm.yml
+demo/demo_outputs/
+demo/nf_demo.log

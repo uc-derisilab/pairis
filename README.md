@@ -53,7 +53,7 @@ or `uv`) cover the rest; name them anything and point `conda_env` / `rosetta_con
 ### Hardware (non-standard)
 
 - **NVIDIA GPU required** for AlphaFold3 inference — typically a data-center GPU (A100/H100-class,
-  ~40–80 GB); small complexes like the demo run on less. *(Tested on: `<add your GPU model, e.g. NVIDIA A100 80GB>`.)*
+  ~40–80 GB); small complexes like the demo run on less. *(Tested on an NVIDIA A100 80GB.)*
 - **~hundreds of GB of disk** for the AF3 genetic databases.
 - A normal desktop **cannot** run AlphaFold3, though the input-generation steps run on any CPU
   (see the [demo](#demo)).
@@ -103,9 +103,10 @@ nextflow run ../main.nf -params-file params.yml -profile local
 ```
 
 **Output:** a 3-chain complex structure (`*_model.cif`), confidence scores
-(`*_summary_confidences.json`, iPTM/pLDDT), and MSAs with an `msa_index.json`.
-**Run time:** ~**10–20 minutes** on one modern data-center GPU. The demo needs a GPU; full
-instructions and a GPU-free sanity check are in [`demo/README.md`](demo/README.md).
+(`*_summary_confidences.json`, iPTM/pLDDT ≈ 0.81 on a validation run), and MSAs with an
+`msa_index.json`. **Run time:** ~**30 minutes** (a single-GPU run; dominated by the ~28 min
+CPU MSA database search, with ~1.5 min GPU folding). The demo needs a GPU; full instructions
+and a GPU-free sanity check are in [`demo/README.md`](demo/README.md).
 
 ## Instructions for use (your own data)
 
