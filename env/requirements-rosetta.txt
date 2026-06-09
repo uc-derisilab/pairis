@@ -1,0 +1,13 @@
+# PAIRIS optional Rosetta binding-energy environment (conda env name: "rosetta").
+# Used only when run_rosetta_analysis: true (bin/rosetta_energy_analysis.py).
+# Tested with Python 3.12.11 on Rocky Linux 8.10.
+polars==1.32.3
+biopython==1.85
+
+# PyRosetta is NOT available on PyPI and requires a (free for academic use)
+# Rosetta license — see THIRD_PARTY_LICENSES.md. Install it from the
+# RosettaCommons conda channel into this environment, e.g.:
+#
+#   conda install -c https://conda.rosettacommons.org pyrosetta
+#
+# Tested: pyrosetta==2025.25+release.a0cefad01b

@@ -1,0 +1,47 @@
+# PAIRIS demo configuration
+# A minimal, single-server (one-GPU) run that folds the 9E10 anti-c-myc Fab
+# bound to its c-myc epitope peptide. See demo/README.md for full instructions.
+#
+# Run from inside this demo/ directory:
+#   cd demo
+#   nextflow run ../main.nf -params-file params.yml -profile local
+
+# ===== Project Settings =====
+project_name: "demo_9E10_cmyc"
+peptide_fasta: "input/peptides.fasta"
+bcr_dir: "input/bcrs"
+
+# ===== Analysis Parameters (minimized for a fast demo) =====
+# Full-length peptide (no sliding windows)
+window_sizes: null
+# Single seed / single diffusion sample keeps the demo short.
+# Production runs use many more (see params.template.yml).
+num_seeds: 1
+num_diffusion_samples: 1
+
+# ===== Workflow Stages =====
+run_msa_generation: true
+run_structure_prediction: true
+run_rosetta_analysis: false   # optional; needs the separate "rosetta" env (pyrosetta)
+
+# ===== Output Directories =====
+outdir: "results"
+# REQUIRED: set to a writable directory for AF3 outputs (structures, MSAs).
+# Create it before running:  mkdir -p /path/to/demo_outputs
+af3_output_dir: "/path/to/demo_outputs"
+
+# ===== Local Execution Settings (required for -profile local) =====
+# REQUIRED: point these at your AlphaFold3 container, model params, and databases.
+# See the Installation section of the top-level README for how to obtain them.
+af3_sif: "/path/to/alphafold.sif"
+af3_model_dir: "/path/to/af3/params"
+af3_db_dir: "/path/to/af3/public_databases"
+
+# GPU configuration (a single GPU is sufficient for this demo)
+local_num_gpus: 1
+local_max_parallel_folding: 1
+local_max_parallel_cpu: 4
+
+# Python environments (uv venvs) — see README Installation
+local_venv: "/path/to/pairis-venv"
+# local_rosetta_venv: "/path/to/rosetta-venv"   # only if run_rosetta_analysis: true

@@ -1,3 +1,12 @@
-polars>=0.20.0
-pandas>=2.0.0
-biopython>=1.80
+# PAIRIS general/default Python environment.
+# Used by the input-generation scripts (Python standard library only) and by
+# result collation (pandas). Tested with Python 3.12.7 on Rocky Linux 8.10.
+#
+# Create this in a conda env (or uv venv) and set its name via the `conda_env`
+# parameter (default: "pairis").
+#
+# For the optional Rosetta binding-energy stage, use env/requirements-rosetta.txt
+# in a separate environment instead.
+pandas==2.2.3
+polars==0.20.31
+biopython==1.84
