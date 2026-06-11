@@ -81,17 +81,25 @@ def build_summary_confidences(chain_iptm: list, ptm: float, iptm: float,
         "chain_iptm": list(chain_iptm),
         "ptm": ptm,
         "iptm": iptm,
+        # Intentionally chain_iptm[0] (peptide interface), NOT AF3's global
+        # ranking_score: PAIRIS ranks on chain_iptm[0]. Do not "fix" this.
         "ranking_score": chain_iptm[0],
         "best_seed": best_seed,
     }
 
 
+def _rank_key(record) -> tuple:
+    """Seed-ranking key: peptide interface chain_iptm[0], tie-break by ptm.
+
+    Single source of truth for the ranking rule, shared by ``pick_best`` and
+    the running-best comparison in ``run`` so the two can never diverge.
+    """
+    return (record["chain_iptm"][0], record["ptm"])
+
+
 def pick_best(seed_records: list) -> dict:
     """Pick the best seed record: max chain_iptm[0], tie-break by ptm."""
-    return max(
-        seed_records,
-        key=lambda r: (r["chain_iptm"][0], r["ptm"]),
-    )
+    return max(seed_records, key=_rank_key)
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +111,8 @@ def load_model(model: str):
     import torch
     from transformers.models.esmfold2.modeling_esmfold2 import ESMFold2Model
 
-    assert torch.cuda.is_available(), "CUDA required for ESMFold2 inference"
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is required for ESMFold2 inference")
     print(f"torch={torch.__version__} cuda={torch.version.cuda}")
     print(f"GPU: {torch.cuda.get_device_name(0)}")
 
@@ -192,7 +201,7 @@ def run(spec: dict, base_dir: Path, output_dir, model: str,
 
     seed_records = []
     best_record = None
-    best_result = None
+    best_mmcif = None
     for seed in range(num_seeds):
         t0 = time.perf_counter()
         print(f"Folding {outer!r} seed {seed} "
@@ -212,21 +221,17 @@ def run(spec: dict, base_dir: Path, output_dir, model: str,
         }
         seed_records.append(record)
 
-        # Track the running best so we can keep its result (cif) without
-        # holding every seed's structure in memory.
-        if best_record is None or (
-            (record["chain_iptm"][0], record["ptm"])
-            > (best_record["chain_iptm"][0], best_record["ptm"])
-        ):
+        # Track the running best by the shared ranking rule and capture its
+        # mmCIF as a host string now, so each seed's GPU result can go out of
+        # scope this iteration (peak memory = one live result).
+        if best_record is None or _rank_key(record) > _rank_key(best_record):
             best_record = record
-            best_result = result
+            best_mmcif = result.complex.to_mmcif()
 
-    best = pick_best(seed_records)
-    assert best["seed"] == best_record["seed"], "running-best disagreed with pick_best"
-
-    cif_path.write_text(best_result.complex.to_mmcif())
+    cif_path.write_text(best_mmcif)
     print(f"Wrote {cif_path}")
 
+    best = best_record
     summary = build_summary_confidences(
         chain_iptm=best["chain_iptm"],
         ptm=best["ptm"],

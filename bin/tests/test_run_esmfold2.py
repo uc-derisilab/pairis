@@ -95,6 +95,24 @@ def test_build_summary_confidences_preserves_order():
     assert d["best_seed"] == 4
 
 
+def test_rank_key_is_chain_iptm0_then_ptm():
+    # The shared ranking key is (chain_iptm[0], ptm).
+    record = {"seed": 7, "chain_iptm": [0.42, 0.9, 0.1], "ptm": 0.83, "iptm": 0.5}
+    assert run_esmfold2._rank_key(record) == (0.42, 0.83)
+
+
+def test_pick_best_uses_rank_key():
+    # pick_best must rank by _rank_key (max chain_iptm[0], tie-break ptm).
+    records = [
+        {"seed": 0, "chain_iptm": [0.5, 0.7, 0.5], "ptm": 0.70, "iptm": 0.5},
+        {"seed": 1, "chain_iptm": [0.5, 0.2, 0.4], "ptm": 0.90, "iptm": 0.5},
+        {"seed": 2, "chain_iptm": [0.6, 0.5, 0.5], "ptm": 0.10, "iptm": 0.5},
+    ]
+    best = run_esmfold2.pick_best(records)
+    assert best == max(records, key=run_esmfold2._rank_key)
+    assert best["seed"] == 2  # highest chain_iptm[0] = 0.6 wins outright
+
+
 def test_pick_best_by_chain_iptm0():
     records = [
         {"seed": 0, "chain_iptm": [0.3, 0.7, 0.5], "ptm": 0.9, "iptm": 0.5},
