@@ -20,6 +20,26 @@ num_seeds: 100
 # Number of diffusion samples per seed in AF3 folding
 num_diffusion_samples: 5
 
+# ===== Folding Backend =====
+# Structure-prediction engine: "alphafold3" (default) or "esmfold2".
+folding_backend: "alphafold3"
+
+# ESMFold2 options (only used when folding_backend: "esmfold2"):
+#   esmfold2_model: "fast"  -> ESMFold2-Fast, MSA-free. Skips Stage 1 entirely;
+#                              AlphaFold3 is NOT needed. Set run_msa_generation: false.
+#   esmfold2_model: "full"  -> uses MSAs. AF3's data pipeline is the only MSA source,
+#                              so "full" STILL requires AlphaFold3 plus
+#                              run_msa_generation: true (or an existing msa_index.json).
+# esmfold2_model: "fast"
+# esmfold2_conda_env: "esmfold2"     # conda/mamba env for the ESMFold2 folding step
+# esmfold2_hf_home: "/path/to/hf_cache"  # HF model cache; pre-download on a node with network
+# esmfold2_num_loops: 3
+# esmfold2_num_sampling_steps: 50
+#
+# NOTE: ESMFold2 folds num_seeds seeds SERIALLY per complex (keeping the best),
+# unlike AF3's single parallel pass. With a large num_seeds (e.g. the default 100),
+# raise folding_time accordingly — or lower num_seeds — to avoid wall-clock timeouts.
+
 # ===== Workflow Stages =====
 # Control which stages of the pipeline to run
 run_msa_generation: true

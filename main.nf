@@ -8,13 +8,23 @@ include { RUN_AF3_MSA } from './modules/msa'
 include { EXTRACT_MSAS } from './modules/msa'
 include { GENERATE_COMPLEX_INPUTS } from './modules/structures'
 include { RUN_AF3_FOLDING } from './modules/structures'
+include { GENERATE_ESMFOLD2_INPUTS; RUN_ESMFOLD2_FOLDING } from './modules/folding_esmfold2'
 include { GROUP_STRUCTURES_BY_BCR } from './modules/analysis'
 include { RUN_ROSETTA } from './modules/analysis'
 include { COLLATE_RESULTS } from './modules/analysis'
 
 workflow {
-    // Validate local profile parameters
-    if (workflow.profile?.contains('local')) {
+    // Validate folding backend selection
+    if (!(params.folding_backend in ['alphafold3', 'esmfold2'])) {
+        error "ERROR: folding_backend must be 'alphafold3' or 'esmfold2' (got '${params.folding_backend}')"
+    }
+
+    // AF3 actually runs when folding with AF3 OR whenever MSA generation is on
+    // (MSA generation always uses AF3, regardless of folding backend).
+    def af3_will_run = (params.folding_backend == 'alphafold3') || params.run_msa_generation
+
+    // Validate local profile parameters — only when AF3 will actually run
+    if (workflow.profile?.contains('local') && af3_will_run) {
         if (!params.af3_sif) {
             error "ERROR: -profile local requires --af3_sif (path to alphafold.sif)"
         }
@@ -26,6 +36,14 @@ workflow {
         }
         if (!params.local_venv) {
             log.warn "WARNING: --local_venv not set. Python scripts may fail if python is not on PATH."
+        }
+    }
+
+    // ESMFold2 'full' model needs MSAs: either generate them this run, or have
+    // an existing MSA index on disk.
+    if (params.folding_backend == 'esmfold2' && params.esmfold2_model == 'full' && !params.run_msa_generation) {
+        if (!file("${params.af3_output_dir}/results/msas/msa_index.json").exists()) {
+            error "ERROR: esmfold2_model='full' needs MSAs: enable run_msa_generation or provide an existing msa_index.json"
         }
     }
 
@@ -82,69 +100,135 @@ workflow {
 
     // ===== Phase 2: Structure Prediction =====
     if (params.run_structure_prediction) {
-        // Generate complex JSONs for each BCR with peptides
-        if (params.window_sizes) {
-            // Filter out BCR+window combos where all (peptide_record × BCR × window) JSONs exist
-            bcr_window_pairs = bcr_files
-                .combine(Channel.from(params.window_sizes))
-                .filter { bcr, ws ->
+        if (params.folding_backend == 'alphafold3') {
+            // ---- AlphaFold3 backend (default, unchanged behavior) ----
+            // Generate complex JSONs for each BCR with peptides
+            if (params.window_sizes) {
+                // Filter out BCR+window combos where all (peptide_record × BCR × window) JSONs exist
+                bcr_window_pairs = bcr_files
+                    .combine(Channel.from(params.window_sizes))
+                    .filter { bcr, ws ->
+                        peptide_records.any { rec ->
+                            def existing = file("${params.outdir}/af3_inputs/complexes/${rec}_${bcr.baseName}_${ws}mer_*.json")
+                            (existing instanceof List ? existing.size() : (existing.exists() ? 1 : 0)) == 0
+                        }
+                    }
+
+                inputs = bcr_window_pairs
+                    .combine(msa_index_file)
+                    .combine(msa_dir)
+                    .multiMap { bcr, ws, msa_idx, msa_d ->
+                        peptide: peptide_fasta
+                        bcr: bcr
+                        window: ws
+                        seeds: params.num_seeds
+                        index: msa_idx
+                        msa_directory: msa_d
+                    }
+
+                complex_jsons = GENERATE_COMPLEX_INPUTS(
+                    inputs.peptide,
+                    inputs.bcr,
+                    inputs.window,
+                    inputs.seeds,
+                    inputs.index,
+                    inputs.msa_directory
+                )
+            } else {
+                // No sliding window — keep BCRs missing ANY (peptide_record × BCR) JSON
+                new_bcr_files = bcr_files.filter { bcr ->
                     peptide_records.any { rec ->
-                        def existing = file("${params.outdir}/af3_inputs/complexes/${rec}_${bcr.baseName}_${ws}mer_*.json")
-                        (existing instanceof List ? existing.size() : (existing.exists() ? 1 : 0)) == 0
+                        !file("${params.outdir}/af3_inputs/complexes/${rec}_${bcr.baseName}.json").exists()
                     }
                 }
 
-            inputs = bcr_window_pairs
-                .combine(msa_index_file)
-                .combine(msa_dir)
-                .multiMap { bcr, ws, msa_idx, msa_d ->
-                    peptide: peptide_fasta
-                    bcr: bcr
-                    window: ws
-                    seeds: params.num_seeds
-                    index: msa_idx
-                    msa_directory: msa_d
-                }
-
-            complex_jsons = GENERATE_COMPLEX_INPUTS(
-                inputs.peptide,
-                inputs.bcr,
-                inputs.window,
-                inputs.seeds,
-                inputs.index,
-                inputs.msa_directory
-            )
-        } else {
-            // No sliding window — keep BCRs missing ANY (peptide_record × BCR) JSON
-            new_bcr_files = bcr_files.filter { bcr ->
-                peptide_records.any { rec ->
-                    !file("${params.outdir}/af3_inputs/complexes/${rec}_${bcr.baseName}.json").exists()
-                }
+                complex_jsons = GENERATE_COMPLEX_INPUTS(
+                    peptide_fasta,
+                    new_bcr_files,
+                    0,
+                    params.num_seeds,
+                    msa_index_file,
+                    msa_dir
+                )
             }
 
-            complex_jsons = GENERATE_COMPLEX_INPUTS(
-                peptide_fasta,
-                new_bcr_files,
-                0,
-                params.num_seeds,
-                msa_index_file,
-                msa_dir
-            )
+            // Combine newly generated JSONs with existing ones, then filter out
+            // any that already have completed structures (model.cif exists)
+            all_jsons = complex_jsons.flatten()
+                .mix(Channel.fromPath("${params.outdir}/af3_inputs/complexes/*.json"))
+                .unique { it.baseName }
+
+            jsons_to_fold = all_jsons.filter { json ->
+                def existing = file("${params.af3_output_dir}/af3_outputs/complexes/${json.baseName}/*/*_model.cif")
+                existing instanceof List ? existing.size() == 0 : !existing.exists()
+            }
+
+            // Run AF3 for structure prediction (only for missing structures)
+            structures = RUN_AF3_FOLDING(jsons_to_fold)
+        } else {
+            // ---- ESMFold2 backend ----
+            // Same windowed / non-windowed generation logic, but the ESMFold2
+            // generator takes no num_seeds (seeds are a folding-time argument).
+            if (params.window_sizes) {
+                // Filter out BCR+window combos where all (peptide_record × BCR × window) JSONs exist
+                bcr_window_pairs = bcr_files
+                    .combine(Channel.from(params.window_sizes))
+                    .filter { bcr, ws ->
+                        peptide_records.any { rec ->
+                            def existing = file("${params.outdir}/af3_inputs/complexes/${rec}_${bcr.baseName}_${ws}mer_*.json")
+                            (existing instanceof List ? existing.size() : (existing.exists() ? 1 : 0)) == 0
+                        }
+                    }
+
+                inputs = bcr_window_pairs
+                    .combine(msa_index_file)
+                    .combine(msa_dir)
+                    .multiMap { bcr, ws, msa_idx, msa_d ->
+                        peptide: peptide_fasta
+                        bcr: bcr
+                        window: ws
+                        index: msa_idx
+                        msa_directory: msa_d
+                    }
+
+                complex_jsons = GENERATE_ESMFOLD2_INPUTS(
+                    inputs.peptide,
+                    inputs.bcr,
+                    inputs.window,
+                    inputs.index,
+                    inputs.msa_directory
+                )
+            } else {
+                // No sliding window — keep BCRs missing ANY (peptide_record × BCR) JSON
+                new_bcr_files = bcr_files.filter { bcr ->
+                    peptide_records.any { rec ->
+                        !file("${params.outdir}/af3_inputs/complexes/${rec}_${bcr.baseName}.json").exists()
+                    }
+                }
+
+                complex_jsons = GENERATE_ESMFOLD2_INPUTS(
+                    peptide_fasta,
+                    new_bcr_files,
+                    0,
+                    msa_index_file,
+                    msa_dir
+                )
+            }
+
+            // Combine newly generated JSONs with existing ones, then filter out
+            // any that already have completed structures (model.cif exists)
+            all_jsons = complex_jsons.flatten()
+                .mix(Channel.fromPath("${params.outdir}/af3_inputs/complexes/*.json"))
+                .unique { it.baseName }
+
+            jsons_to_fold = all_jsons.filter { json ->
+                def existing = file("${params.af3_output_dir}/af3_outputs/complexes/${json.baseName}/*/*_model.cif")
+                existing instanceof List ? existing.size() == 0 : !existing.exists()
+            }
+
+            // Run ESMFold2 for structure prediction (only for missing structures)
+            structures = RUN_ESMFOLD2_FOLDING(jsons_to_fold)
         }
-
-        // Combine newly generated JSONs with existing ones, then filter out
-        // any that already have completed structures (model.cif exists)
-        all_jsons = complex_jsons.flatten()
-            .mix(Channel.fromPath("${params.outdir}/af3_inputs/complexes/*.json"))
-            .unique { it.baseName }
-
-        jsons_to_fold = all_jsons.filter { json ->
-            def existing = file("${params.af3_output_dir}/af3_outputs/complexes/${json.baseName}/*/*_model.cif")
-            existing instanceof List ? existing.size() == 0 : !existing.exists()
-        }
-
-        // Run AF3 for structure prediction (only for missing structures)
-        structures = RUN_AF3_FOLDING(jsons_to_fold)
     } else {
         // Load existing structures from previous run
         structures = Channel.fromPath("${params.af3_output_dir}/af3_outputs/complexes/*/*/*_model*.cif")
@@ -194,7 +278,8 @@ workflow.onComplete {
         println "AF3 MSA outputs: ${params.af3_output_dir}/af3_outputs/msa_only"
     }
     if (params.run_structure_prediction) {
-        println "AF3 structures: ${params.af3_output_dir}/af3_outputs/complexes"
+        def folding_label = params.folding_backend == 'esmfold2' ? 'ESMFold2' : 'AF3'
+        println "${folding_label} structures: ${params.af3_output_dir}/af3_outputs/complexes"
     }
     println ""
 }

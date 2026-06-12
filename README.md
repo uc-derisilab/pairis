@@ -1,11 +1,14 @@
 # PAIRIS: Prediction of Antibody-antigen Interactions at high Resolution In Silico
 
-A Nextflow pipeline for high-throughput prediction of antibody–peptide complex structures
-using AlphaFold3, with optional Rosetta binding-energy analysis. PAIRIS runs on SLURM HPC
-clusters (default) or on a single GPU server (`-profile local`).
+A Nextflow pipeline for high-throughput prediction of antibody–peptide complex structures,
+with optional Rosetta binding-energy analysis. Structure prediction can use **AlphaFold3**
+(default) or **ESMFold2** — a fast, optionally MSA-free alternative — selectable via the
+`folding_backend` parameter. PAIRIS runs on SLURM HPC clusters (default) or on a single GPU
+server (`-profile local`).
 
 ## Features
 
+- **Selectable Folding Backend**: AlphaFold3 (default) or ESMFold2 (a fast, optionally MSA-free alternative) via `folding_backend`
 - **MSA Reuse Optimization**: Pre-compute MSAs once and reuse across multiple complex predictions (4-6x speedup)
 - **Sliding Window Analysis**: Generate overlapping peptide windows for epitope mapping
 - **Template Integration**: Automatically extract and incorporate homology templates from AlphaFold3
@@ -29,7 +32,8 @@ installed separately:
 | [Nextflow](https://www.nextflow.io/) | ≥24.10.0 | 24.10.5 |
 | Java (Nextflow runtime) | 17+ | — |
 | [Apptainer](https://apptainer.org/) / Singularity (for `-profile local`) | any recent | 1.4.5 |
-| [AlphaFold3](https://github.com/google-deepmind/alphafold3) | ≥3.0 | 3.0.1 (module `alphafold/3.0.1-23-g792e61e`) |
+| [AlphaFold3](https://github.com/google-deepmind/alphafold3) | ≥3.0 (default backend; also the only MSA source) | 3.0.1 (module `alphafold/3.0.1-23-g792e61e`) |
+| ESMFold2 (`esm` Python package; alternative backend, `folding_backend: esmfold2`) | optional | see `env/requirements-esmfold2.txt` |
 | Python | 3.12 | 3.12.7 |
 | SLURM (only for the default cluster profile) | — | — |
 
@@ -49,14 +53,24 @@ or `uv`) cover the rest; name them anything and point `conda_env` / `rosetta_con
   [`env/requirements-rosetta.txt`](env/requirements-rosetta.txt). Python 3.12.11, `polars`
   1.32.3, `biopython` 1.85, `pyrosetta` 2025.25 (not on PyPI; needs a Rosetta license — see
   that file and THIRD_PARTY_LICENSES.md).
+- **ESMFold2** (optional, when `folding_backend: esmfold2`) —
+  [`env/requirements-esmfold2.txt`](env/requirements-esmfold2.txt), used by
+  `bin/run_esmfold2.py`; point `esmfold2_conda_env` at it (default `esmfold2`). Python 3.12,
+  `torch`, `pydantic`, and a forked `esm` that transitively installs a forked `transformers`
+  providing `transformers.models.esmfold2` (plain PyPI `transformers` will not work).
+  **Requires an NVIDIA GPU**; the model is downloaded from HuggingFace on first run (set
+  `esmfold2_hf_home` to a cache dir and pre-download on a node with network access).
 
 ### Hardware (non-standard)
 
-- **NVIDIA GPU required** for AlphaFold3 inference — typically a data-center GPU (A100/H100-class,
-  ~40–80 GB); small complexes like the demo run on less. *(Tested on an NVIDIA A100 80GB.)*
-- **~hundreds of GB of disk** for the AF3 genetic databases.
-- A normal desktop **cannot** run AlphaFold3, though the input-generation steps run on any CPU
-  (see the [demo](#demo)).
+- **NVIDIA GPU required** for inference with either backend — typically a data-center GPU
+  (A100/H100-class, ~40–80 GB); small complexes like the demo run on less. *(Tested on an
+  NVIDIA A100 80GB.)*
+- **~hundreds of GB of disk** for the AF3 genetic databases. The ESMFold2 backend with
+  `esmfold2_model: fast` is MSA-free and needs no AF3 databases at all (just the HuggingFace
+  model cache); `esmfold2_model: full` still needs AF3-generated MSAs.
+- A normal desktop **cannot** run AlphaFold3 or ESMFold2 inference, though the
+  input-generation steps run on any CPU (see the [demo](#demo)).
 
 ## Installation
 
@@ -85,6 +99,19 @@ No compilation required. Times below assume a normal desktop/login node with goo
    pip install -r env/requirements-rosetta.txt
    # then install pyrosetta per env/requirements-rosetta.txt
    ```
+6. **(Optional) Create the ESMFold2 environment** — only needed for
+   `folding_backend: esmfold2`. Use a separate env so its forked `esm`/`transformers` do not
+   clash with the default env (`mamba` works too; the name is referenced via
+   `esmfold2_conda_env`):
+   ```bash
+   conda create -n esmfold2 python=3.12
+   conda activate esmfold2
+   pip install -r env/requirements-esmfold2.txt
+   ```
+   The model is downloaded from HuggingFace Hub on first run. HPC compute nodes often have no
+   internet, so set `esmfold2_hf_home` to a cache directory and pre-download the model on a
+   node with network access (`biohub/ESMFold2-Fast` for the `fast` variant,
+   `biohub/ESMFold2` for `full`).
 
 **Typical install time:** PAIRIS + Python environment, **~10 minutes**. One-time AlphaFold3
 setup (container + parameters + databases), **several hours** (dominated by the database
@@ -170,6 +197,10 @@ nextflow run main.nf -params-file params.yml
 # On a single GPU server (fill in af3_sif / af3_model_dir / af3_db_dir first)
 nextflow run main.nf -params-file params.yml -profile local
 
+# Fold with ESMFold2-Fast (MSA-free; no AlphaFold3 needed)
+nextflow run main.nf -params-file params.yml \
+    --folding_backend esmfold2 --esmfold2_model fast --run_msa_generation false
+
 # Resume an interrupted run
 nextflow run main.nf -params-file params.yml -resume
 ```
@@ -188,12 +219,19 @@ Pre-computes multiple sequence alignments for all input sequences:
 
 ### Stage 2: Structure Prediction
 
-Predicts antibody-peptide complex structures using AlphaFold3:
+Predicts antibody-peptide complex structures. The backend is selectable via `folding_backend`:
 
-- **Input:** Complex JSON files (auto-generated from Stage 1 or fresh MSAs)
-- **MSA Mode:** Uses pre-computed MSAs if available (`--run_data_pipeline=false`)
-- **Output:** Predicted structures (`.cif` files), confidence scores (`.json`)
-- **Templates:** Automatically incorporated if found in MSA generation
+- **AlphaFold3** (default):
+  - **Input:** Complex JSON files (auto-generated from Stage 1 or fresh MSAs)
+  - **MSA Mode:** Uses pre-computed MSAs if available (`--run_data_pipeline=false`)
+  - **Output:** Predicted structures (`.cif` files), confidence scores (`.json`)
+  - **Templates:** Automatically incorporated if found in MSA generation
+- **ESMFold2** (`folding_backend: esmfold2`): drop-in alternative that writes to the same
+  output directories, so Rosetta and collation run unchanged. With `esmfold2_model: fast`
+  it is MSA-free, so **Stage 1 can be skipped** and AlphaFold3 is not needed at all. With
+  `esmfold2_model: full` it still consumes AF3-generated MSAs, so Stage 1 (or an existing
+  `msa_index.json`) is required. For each complex it folds `num_seeds` seeds and keeps the
+  single best by peptide-interface confidence.
 
 ### Stage 3: Rosetta Analysis (Optional)
 
@@ -241,6 +279,28 @@ my_project/
 
 ## Configuration
 
+### Folding backend
+
+`folding_backend` selects the structure-prediction engine:
+
+```yaml
+folding_backend: "alphafold3"   # default, unchanged behavior
+# folding_backend: "esmfold2"   # fast, optionally MSA-free alternative
+```
+
+When `folding_backend: esmfold2`, these additional parameters apply:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `esmfold2_model` | `fast` | `fast` = ESMFold2-Fast, MSA-free (skips Stage 1 entirely; **no AlphaFold3 needed**). `full` = uses MSAs; since AF3's data pipeline is PAIRIS's only MSA source, `full` **still requires AlphaFold3** plus `run_msa_generation: true` or an existing `msa_index.json`. |
+| `esmfold2_conda_env` | `esmfold2` | conda/mamba env activated for the ESMFold2 folding step (see [`env/requirements-esmfold2.txt`](env/requirements-esmfold2.txt)). |
+| `esmfold2_hf_home` | `null` | HuggingFace cache dir (`HF_HOME`) for the downloaded model; set it and pre-download on a node with network access. |
+| `esmfold2_num_loops` | `3` | ESMFold2 `num_loops`. |
+| `esmfold2_num_sampling_steps` | `50` | ESMFold2 `num_sampling_steps`. |
+
+ESMFold2 outputs land in the same `af3_inputs/complexes` and `af3_outputs/complexes`
+directories as AlphaFold3, so the Rosetta and collation stages work unchanged.
+
 ### Sliding Window Analysis
 
 Control peptide fragmentation for epitope mapping:
@@ -277,6 +337,12 @@ rosetta_cpus: 4
 rosetta_memory: '16.GB'
 rosetta_time: '8.h'
 ```
+
+> **ESMFold2 seeds run serially.** Unlike AlphaFold3's single parallel pass, the ESMFold2
+> backend folds `num_seeds` seeds one at a time per complex (keeping the best by
+> peptide-interface confidence). The ESMFold2 folding step reuses the `folding_*` resources,
+> so with a large `num_seeds` (e.g. the default `100`) raise `folding_time` accordingly — or
+> lower `num_seeds` — to avoid wall-clock timeouts.
 
 ### Independent Stage Execution
 
