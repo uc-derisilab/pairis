@@ -278,7 +278,8 @@ workflow.onComplete {
         println "AF3 MSA outputs: ${params.af3_output_dir}/af3_outputs/msa_only"
     }
     if (params.run_structure_prediction) {
-        println "AF3 structures: ${params.af3_output_dir}/af3_outputs/complexes"
+        def folding_label = params.folding_backend == 'esmfold2' ? 'ESMFold2' : 'AF3'
+        println "${folding_label} structures: ${params.af3_output_dir}/af3_outputs/complexes"
     }
     println ""
 }
