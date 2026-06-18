@@ -76,22 +76,28 @@ partition: "preempted"
 # local_max_parallel_folding: 4
 # local_max_parallel_cpu: 8
 
-# Python environments (uv venvs)
-# local_venv: "/path/to/pairis-venv"           # For general scripts
-# local_rosetta_venv: "/path/to/rosetta-venv"  # For Rosetta analysis
+# Python env for the general steps (input generation, MSA extraction, grouping,
+# collation) — a uv venv:
+# local_venv: "/path/to/pairis-venv"
+#
+# NOTE: the local profile is HYBRID. Only the general steps above use local_venv.
+# The Rosetta and ESMFold2 folding steps activate *mamba/conda* envs
+# (rosetta_conda_env / esmfold2_conda_env) — the same envs as the SLURM profile —
+# not uv venvs, because pyrosetta and the ESM fork install via conda/pip envs.
 
 # ===== Setup Guide (local profile) =====
-# 1. Create general venv:
-#    uv venv /path/to/pairis-venv
-#    source /path/to/pairis-venv/bin/activate
+# 1. General venv (input generation, collation, etc.):
+#    uv venv /path/to/pairis-venv && source /path/to/pairis-venv/bin/activate
 #    uv pip install polars pandas biopython
 #
-# 2. Create Rosetta venv (if running Rosetta analysis):
-#    uv venv /path/to/rosetta-venv
-#    source /path/to/rosetta-venv/bin/activate
-#    uv pip install polars pandas biopython pyrosetta
+# 2. Rosetta (only if run_rosetta_analysis: true) — a mamba env, not a venv:
+#    conda create -n rosetta && conda activate rosetta
+#    pip install polars pandas biopython pyrosetta      # then rosetta_conda_env: "rosetta"
 #
-# 3. Run: nextflow run main.nf -params-file params.yml -profile local
+# 3. ESMFold2 (only if folding_backend: esmfold2) — see env/requirements-esmfold2.txt;
+#    set esmfold2_conda_env (default "esmfold2").
+#
+# 4. Run: nextflow run main.nf -params-file params.yml -profile local
 
 # ===== Notes =====
 # 1. Ensure input files exist before running

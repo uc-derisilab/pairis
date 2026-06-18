@@ -219,6 +219,18 @@ def run(spec: dict, base_dir: Path, output_dir, model: str,
         num_seeds: int) -> int:
     """Load model, fold all seeds, write AF3-compatible outputs for the best."""
     outer = spec["name"]
+
+    # Peptide-interface ranking (chain_iptm[0]) and the AF3-compatible outputs
+    # assume the peptide is chain A / sequences[0] (the generator always emits it
+    # first, and collation reads id == 'A' as the peptide). Fail loudly if a
+    # caller ever reorders chains, rather than silently ranking on the wrong one.
+    first_id = spec["sequences"][0]["id"]
+    first_id = first_id[0] if isinstance(first_id, (list, tuple)) else first_id
+    if first_id != "A":
+        raise ValueError(
+            f"expected peptide as chain 'A' (sequences[0]); got {first_id!r}"
+        )
+
     cif_path, summary_path, all_seeds_path = output_paths(output_dir, outer)
     cif_path.parent.mkdir(parents=True, exist_ok=True)
 

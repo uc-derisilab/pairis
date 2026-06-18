@@ -46,4 +46,4 @@ local_max_parallel_cpu: 4
 
 # Python env (uv venv) for the general/input-generation + collation steps.
 # local_venv: "/path/to/pairis-venv"
-# local_rosetta_venv: "/path/to/rosetta-venv"   # only if run_rosetta_analysis: true
+# Rosetta (if run_rosetta_analysis: true) uses the mamba rosetta_conda_env, not a venv.
