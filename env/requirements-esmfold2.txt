@@ -1,0 +1,28 @@
+# PAIRIS optional ESMFold2 folding environment (conda env name: "esmfold2").
+# Used by bin/run_esmfold2.py when folding_backend: esmfold2. Create this in a
+# separate mamba/conda env (or uv venv) and point the `esmfold2_conda_env`
+# parameter at it (default: "esmfold2").
+#
+# NOTE: the `esm` fork below transitively installs a FORKED `transformers`
+# (git+https://github.com/Biohub/transformers.git) that provides
+# `transformers.models.esmfold2`. Plain PyPI `transformers` does NOT have this
+# module and will NOT work — do not add `transformers` to this file.
+#
+# Requires an NVIDIA GPU (CUDA); ESMFold2 inference is GPU-only.
+#
+# The model is downloaded from HuggingFace Hub on first run
+# (biohub/ESMFold2-Fast for the 'fast' variant, biohub/ESMFold2 for 'full').
+# Set `esmfold2_hf_home` to a cache dir and pre-download on a node with network
+# (HPC compute nodes often have no internet).
+#
+# Tested with Python 3.12. Reproducibility pins (from esmfold2-test/uv.lock):
+#   torch==2.12.0
+#   esm==3.3.0            (Biohub fork @ c94ed8d)
+#   transformers==4.57.6  (Biohub fork @ 3a8956fb; pulled in transitively by esm)
+#   pydantic==2.13.4
+#   numpy==2.4.6
+#   huggingface-hub==0.36.2
+#   accelerate==1.13.0
+torch>=2.2.0
+esm @ git+https://github.com/Biohub/esm.git@c94ed8d
+pydantic>=2.0

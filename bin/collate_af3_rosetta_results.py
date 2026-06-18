@@ -14,10 +14,14 @@ import re
 
 
 def extract_peptide_sequence(af3_input_json_path):
-    """Extract peptide sequence from AF3 input JSON file.
+    """Extract peptide (chain A) sequence from a folding-backend input JSON.
+
+    Handles both input shapes:
+    - AlphaFold3 (nested): {"sequences": [{"protein": {"id": "A", "sequence": ...}}]}
+    - ESMFold2 (flat):      {"sequences": [{"type": "protein", "id": "A", "sequence": ...}]}
 
     Args:
-        af3_input_json_path: Path to AF3 input JSON file
+        af3_input_json_path: Path to the folding-backend input JSON file
 
     Returns:
         Peptide sequence string, or None if not found
@@ -26,11 +30,15 @@ def extract_peptide_sequence(af3_input_json_path):
         with open(af3_input_json_path, 'r') as f:
             data = json.load(f)
 
-        # Find sequence with id "A" (the peptide)
+        # Find the protein sequence with id "A" (the peptide) in either shape.
         for seq_entry in data.get('sequences', []):
+            # AF3 nested shape
             if 'protein' in seq_entry:
                 if seq_entry['protein'].get('id') == 'A':
                     return seq_entry['protein'].get('sequence')
+            # ESMFold2 flat shape
+            elif seq_entry.get('type') == 'protein' and seq_entry.get('id') == 'A':
+                return seq_entry.get('sequence')
         return None
     except Exception as e:
         print(f"Warning: Error reading {af3_input_json_path}: {e}")

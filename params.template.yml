@@ -20,6 +20,26 @@ num_seeds: 100
 # Number of diffusion samples per seed in AF3 folding
 num_diffusion_samples: 5
 
+# ===== Folding Backend =====
+# Structure-prediction engine: "alphafold3" (default) or "esmfold2".
+folding_backend: "alphafold3"
+
+# ESMFold2 options (only used when folding_backend: "esmfold2"):
+#   esmfold2_model: "fast"  -> ESMFold2-Fast, MSA-free. Skips Stage 1 entirely;
+#                              AlphaFold3 is NOT needed. Set run_msa_generation: false.
+#   esmfold2_model: "full"  -> uses MSAs. AF3's data pipeline is the only MSA source,
+#                              so "full" STILL requires AlphaFold3 plus
+#                              run_msa_generation: true (or an existing msa_index.json).
+# esmfold2_model: "fast"
+# esmfold2_conda_env: "esmfold2"     # conda/mamba env for the ESMFold2 folding step
+# esmfold2_hf_home: "/path/to/hf_cache"  # HF model cache; pre-download on a node with network
+# esmfold2_num_loops: 3
+# esmfold2_num_sampling_steps: 50
+#
+# NOTE: ESMFold2 folds num_seeds seeds SERIALLY per complex (keeping the best),
+# unlike AF3's single parallel pass. With a large num_seeds (e.g. the default 100),
+# raise folding_time accordingly — or lower num_seeds — to avoid wall-clock timeouts.
+
 # ===== Workflow Stages =====
 # Control which stages of the pipeline to run
 run_msa_generation: true
@@ -56,22 +76,28 @@ partition: "preempted"
 # local_max_parallel_folding: 4
 # local_max_parallel_cpu: 8
 
-# Python environments (uv venvs)
-# local_venv: "/path/to/pairis-venv"           # For general scripts
-# local_rosetta_venv: "/path/to/rosetta-venv"  # For Rosetta analysis
+# Python env for the general steps (input generation, MSA extraction, grouping,
+# collation) — a uv venv:
+# local_venv: "/path/to/pairis-venv"
+#
+# NOTE: the local profile is HYBRID. Only the general steps above use local_venv.
+# The Rosetta and ESMFold2 folding steps activate *mamba/conda* envs
+# (rosetta_conda_env / esmfold2_conda_env) — the same envs as the SLURM profile —
+# not uv venvs, because pyrosetta and the ESM fork install via conda/pip envs.
 
 # ===== Setup Guide (local profile) =====
-# 1. Create general venv:
-#    uv venv /path/to/pairis-venv
-#    source /path/to/pairis-venv/bin/activate
+# 1. General venv (input generation, collation, etc.):
+#    uv venv /path/to/pairis-venv && source /path/to/pairis-venv/bin/activate
 #    uv pip install polars pandas biopython
 #
-# 2. Create Rosetta venv (if running Rosetta analysis):
-#    uv venv /path/to/rosetta-venv
-#    source /path/to/rosetta-venv/bin/activate
-#    uv pip install polars pandas biopython pyrosetta
+# 2. Rosetta (only if run_rosetta_analysis: true) — a mamba env, not a venv:
+#    conda create -n rosetta && conda activate rosetta
+#    pip install polars pandas biopython pyrosetta      # then rosetta_conda_env: "rosetta"
 #
-# 3. Run: nextflow run main.nf -params-file params.yml -profile local
+# 3. ESMFold2 (only if folding_backend: esmfold2) — see env/requirements-esmfold2.txt;
+#    set esmfold2_conda_env (default "esmfold2").
+#
+# 4. Run: nextflow run main.nf -params-file params.yml -profile local
 
 # ===== Notes =====
 # 1. Ensure input files exist before running

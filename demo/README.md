@@ -77,6 +77,31 @@ Enabling the optional Rosetta step adds under a minute. Actual time depends on
 CPU/GPU hardware, database storage speed, and scheduler queueing; per-task timings
 are recorded in `results/reports/trace.txt` and `report.html`.
 
+## Alternative backend: ESMFold2
+
+Two ready-to-edit configs run this same 9E10 / c-myc demo with ESMFold2 instead
+of AlphaFold3 (see the [folding-backend docs](../README.md#folding-backend)):
+
+- [`params.esmfold2.yml`](params.esmfold2.yml) — **ESMFold2-Fast**, MSA-free.
+  Skips Stage 1 entirely and needs **no AlphaFold3 install or databases** — only
+  an NVIDIA GPU, the `esmfold2` env, and the cached `biohub/ESMFold2-Fast` model:
+  ```bash
+  cd demo
+  nextflow run ../main.nf -params-file params.esmfold2.yml -profile local
+  ```
+- [`params.esmfold2.full.yml`](params.esmfold2.full.yml) — **ESMFold2-full**,
+  which uses MSAs. AlphaFold3's data pipeline is PAIRIS's only MSA source, so this
+  still requires AlphaFold3 (it runs Stage 1) and folds with `biohub/ESMFold2`:
+  ```bash
+  cd demo
+  nextflow run ../main.nf -params-file params.esmfold2.full.yml   # SLURM
+  ```
+
+Both write `*_model.cif` + `*_summary_confidences.json` in the same layout as the
+AlphaFold3 backend, so the optional Rosetta + collation steps run unchanged.
+Pre-download the model on a node with network access and point `esmfold2_hf_home`
+at the cache.
+
 ## Quick check without a GPU (input generation only)
 
 The pure-Python input-generation step uses only the standard library and runs in

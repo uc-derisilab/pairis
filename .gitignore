@@ -20,3 +20,6 @@ Thumbs.db
 demo/params.slurm.yml
 demo/demo_outputs/
 demo/nf_demo.log
+
+# Demo full-run output dir (test artifacts)
+demo/results_full/

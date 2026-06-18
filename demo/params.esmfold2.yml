@@ -1,0 +1,49 @@
+# PAIRIS demo configuration — ESMFold2-Fast backend (MSA-free, no AlphaFold3)
+#
+# Folds the 9E10 anti-c-myc Fab bound to its c-myc epitope peptide using
+# ESMFold2-Fast. Because esmfold2_model=fast is MSA-free, Stage 1 (MSA
+# generation) is skipped entirely and no AlphaFold3 install/databases are
+# needed — only an NVIDIA GPU and the ESMFold2 env + model cache.
+#
+# Fill in the placeholder paths below, then run from inside this directory:
+#   cd demo
+#   nextflow run ../main.nf -params-file params.esmfold2.yml -profile local
+
+# ===== Project Settings =====
+project_name: "demo_9E10_cmyc_esmfold2"
+peptide_fasta: "input/peptides.fasta"
+bcr_dir: "input/bcrs"
+
+# ===== Analysis Parameters (minimized for a fast demo) =====
+window_sizes: null
+num_seeds: 1
+num_diffusion_samples: 1   # unused by ESMFold2, kept for schema compatibility
+
+# ===== Workflow Stages =====
+run_msa_generation: false          # ESMFold2-Fast is MSA-free — skip Stage 1
+run_structure_prediction: true
+run_rosetta_analysis: false        # optional; needs the separate "rosetta" env
+
+# ===== Folding Backend =====
+folding_backend: "esmfold2"
+esmfold2_model: "fast"             # MSA-free; no AlphaFold3 needed
+esmfold2_conda_env: "esmfold2"     # conda/mamba env for the ESMFold2 folding step
+# HF model cache; pre-download biohub/ESMFold2-Fast on a node with network access
+esmfold2_hf_home: "/path/to/hf_cache"
+
+# ===== Output Directories =====
+outdir: "results"
+# REQUIRED: ESMFold2 publishes structures under <af3_output_dir>/af3_outputs/complexes.
+# Create it before running:  mkdir -p /path/to/demo_outputs
+af3_output_dir: "/path/to/demo_outputs"
+
+# ===== Local Execution Settings (required for -profile local) =====
+# AF3 container paths (af3_sif/af3_model_dir/af3_db_dir) are NOT needed with the
+# MSA-free ESMFold2-Fast backend.
+local_num_gpus: 1
+local_max_parallel_folding: 1
+local_max_parallel_cpu: 4
+
+# Python env (uv venv) for the general/input-generation + collation steps.
+# local_venv: "/path/to/pairis-venv"
+# Rosetta (if run_rosetta_analysis: true) uses the mamba rosetta_conda_env, not a venv.

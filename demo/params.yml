@@ -42,6 +42,6 @@ local_num_gpus: 1
 local_max_parallel_folding: 1
 local_max_parallel_cpu: 4
 
-# Python environments (uv venvs) — see README Installation
+# Python environment (uv venv) — see README Installation
 local_venv: "/path/to/pairis-venv"
-# local_rosetta_venv: "/path/to/rosetta-venv"   # only if run_rosetta_analysis: true
+# Rosetta (if run_rosetta_analysis: true) uses the mamba rosetta_conda_env, not a venv
