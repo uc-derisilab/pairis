@@ -134,5 +134,60 @@ def test_pick_best_tie_break_by_ptm():
     assert best["seed"] == 1
 
 
+# --- ensure_atom_site_occupancy ------------------------------------------
+
+# Minimal ESMFold2-style atom_site loop (no occupancy column), mirroring the
+# real to_mmcif() header order: B_iso_or_equiv, coords, model_num, id.
+_CIF_NO_OCC = (
+    "data_pred\n"
+    "#\n"
+    "loop_\n"
+    "_atom_site.group_PDB\n"
+    "_atom_site.type_symbol\n"
+    "_atom_site.label_atom_id\n"
+    "_atom_site.label_comp_id\n"
+    "_atom_site.label_asym_id\n"
+    "_atom_site.B_iso_or_equiv\n"
+    "_atom_site.Cartn_x\n"
+    "_atom_site.Cartn_y\n"
+    "_atom_site.Cartn_z\n"
+    "_atom_site.pdbx_PDB_model_num\n"
+    "_atom_site.id\n"
+    "ATOM N N GLU A 37.5 19.0 -27.4 13.1 1 1\n"
+    "ATOM C CA GLU A 37.5 18.6 -28.2 12.7 1 2\n"
+    "#\n"
+)
+
+
+def _atom_site_headers(cif):
+    return [ln.strip() for ln in cif.splitlines()
+            if ln.strip().startswith("_atom_site.")]
+
+
+def test_ensure_occupancy_adds_column_and_keeps_alignment():
+    fixed = run_esmfold2.ensure_atom_site_occupancy(_CIF_NO_OCC)
+    headers = _atom_site_headers(fixed)
+    assert "_atom_site.occupancy" in headers
+    n_cols = len(headers)
+    # Every atom record must have exactly one token per loop column.
+    atom_rows = [ln for ln in fixed.splitlines() if ln.startswith("ATOM")]
+    assert atom_rows, "expected ATOM rows"
+    for row in atom_rows:
+        assert len(row.split()) == n_cols
+        assert row.split()[-1] == "1.00"  # appended occupancy value
+
+
+def test_ensure_occupancy_is_idempotent():
+    once = run_esmfold2.ensure_atom_site_occupancy(_CIF_NO_OCC)
+    twice = run_esmfold2.ensure_atom_site_occupancy(once)
+    assert once == twice
+    assert _atom_site_headers(twice).count("_atom_site.occupancy") == 1
+
+
+def test_ensure_occupancy_noop_without_atom_site_loop():
+    text = "data_x\n#\n_struct.title 'no atoms here'\n"
+    assert run_esmfold2.ensure_atom_site_occupancy(text) == text
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

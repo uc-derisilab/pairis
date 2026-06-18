@@ -88,6 +88,36 @@ def build_summary_confidences(chain_iptm: list, ptm: float, iptm: float,
     }
 
 
+def ensure_atom_site_occupancy(mmcif: str) -> str:
+    """Add an ``_atom_site.occupancy`` column (constant 1.00) if absent.
+
+    The Rosetta stage reads structures with Biopython's ``MMCIFParser``, which
+    requires ``_atom_site.occupancy``. AF3's mmCIF includes it, but ESMFold2's
+    ``to_mmcif()`` omits it (it writes ``B_iso_or_equiv`` only), so its CIFs
+    fail to parse downstream. Inject a constant-1.00 occupancy column so the
+    output stays drop-in compatible with the AF3 path. Idempotent.
+    """
+    lines = mmcif.splitlines()
+    header_idx = [i for i, ln in enumerate(lines)
+                  if ln.strip().startswith("_atom_site.")]
+    if not header_idx:
+        return mmcif  # no atom_site loop to fix
+    if any(lines[i].strip() == "_atom_site.occupancy" for i in header_idx):
+        return mmcif  # already present
+
+    # Append occupancy as the final loop column...
+    out = list(lines)
+    out.insert(header_idx[-1] + 1, "_atom_site.occupancy")
+    # ...and a matching value at the end of every atom record.
+    result = []
+    for ln in out:
+        first = ln.split(maxsplit=1)[0] if ln.split() else ""
+        result.append(ln.rstrip() + " 1.00" if first in ("ATOM", "HETATM")
+                      else ln)
+    text = "\n".join(result)
+    return text + "\n" if mmcif.endswith("\n") else text
+
+
 def _rank_key(record) -> tuple:
     """Seed-ranking key: peptide interface chain_iptm[0], tie-break by ptm.
 
@@ -228,7 +258,7 @@ def run(spec: dict, base_dir: Path, output_dir, model: str,
             best_record = record
             best_mmcif = result.complex.to_mmcif()
 
-    cif_path.write_text(best_mmcif)
+    cif_path.write_text(ensure_atom_site_occupancy(best_mmcif))
     print(f"Wrote {cif_path}")
 
     best = best_record
