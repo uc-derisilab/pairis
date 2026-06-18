@@ -1,0 +1,47 @@
+# PAIRIS demo configuration — ESMFold2 *full* backend (uses AF3-generated MSAs)
+#
+# Unlike the MSA-free "fast" variant, esmfold2_model=full consumes MSAs, and
+# AlphaFold3's data pipeline is PAIRIS's only MSA source. So this runs Stage 1
+# (run_msa_generation: true) via the AlphaFold3 module, then folds with
+# ESMFold2-full, then Rosetta + collation. It therefore still requires a working
+# AlphaFold3 installation (SLURM module or container) plus the genetic databases.
+#
+# Fill in the placeholder paths below, then run from inside this directory
+# (default executor is SLURM; AF3 MSA generation needs the alphafold module):
+#   cd demo
+#   nextflow run ../main.nf -params-file params.esmfold2.full.yml
+
+# ===== Project Settings =====
+project_name: "demo_9E10_cmyc_esmfold2_full"
+peptide_fasta: "input/peptides.fasta"
+bcr_dir: "input/bcrs"
+
+# ===== Analysis Parameters =====
+window_sizes: null
+num_seeds: 1
+num_diffusion_samples: 1   # unused by ESMFold2
+
+# ===== Workflow Stages =====
+run_msa_generation: true           # Stage 1: AF3 data pipeline (the MSA source)
+run_structure_prediction: true
+run_rosetta_analysis: false        # optional; needs the separate "rosetta" env
+
+# ===== Folding Backend =====
+folding_backend: "esmfold2"
+esmfold2_model: "full"             # uses MSAs -> requires Stage 1 MSAs (+ AlphaFold3)
+esmfold2_conda_env: "esmfold2"
+# HF model cache; pre-download biohub/ESMFold2 on a node with network access
+esmfold2_hf_home: "/path/to/hf_cache"
+
+# ===== Output Directories =====
+outdir: "results"
+af3_output_dir: "/path/to/demo_outputs"
+
+# ===== SLURM Settings =====
+partition: "preempted"
+
+# ===== Environment Settings =====
+# Uncomment and override if your cluster uses different names
+# af3_module: "alphafold/3.0.1-23-g792e61e"
+# conda_env: "pairis"
+# rosetta_conda_env: "rosetta"
