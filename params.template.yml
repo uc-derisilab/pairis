@@ -35,10 +35,19 @@ folding_backend: "alphafold3"
 # esmfold2_hf_home: "/path/to/hf_cache"  # HF model cache; pre-download on a node with network
 # esmfold2_num_loops: 3
 # esmfold2_num_sampling_steps: 50
+# esmfold2_samples_per_pass: 0   # diffusion samples per GPU forward pass
+#                                # (0 = all num_seeds in ONE batched pass).
+#                                # Batching samples fills the GPU — a big
+#                                # utilization win for small peptides. Lower it
+#                                # if you hit VRAM limits; set 1 for the legacy
+#                                # one-sample-at-a-time behaviour.
 #
-# NOTE: ESMFold2 folds num_seeds seeds SERIALLY per complex (keeping the best),
-# unlike AF3's single parallel pass. With a large num_seeds (e.g. the default 100),
-# raise folding_time accordingly — or lower num_seeds — to avoid wall-clock timeouts.
+# NOTE: ESMFold2 folds num_seeds diffusion samples per complex (keeping the best).
+# They are now BATCHED into GPU forward passes (num_diffusion_samples) rather than
+# folded one-at-a-time — filling the GPU's batch dimension is what lifts utilization
+# for small peptides. With a large num_seeds (e.g. the default 100), either batch
+# them in fewer passes (higher VRAM/pass) or raise folding_time; watch VRAM as you
+# increase esmfold2_samples_per_pass.
 
 # ===== Workflow Stages =====
 # Control which stages of the pipeline to run
