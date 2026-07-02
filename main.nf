@@ -226,8 +226,11 @@ workflow {
                 existing instanceof List ? existing.size() == 0 : !existing.exists()
             }
 
-            // Run ESMFold2 for structure prediction (only for missing structures)
-            structures = RUN_ESMFOLD2_FOLDING(jsons_to_fold)
+            // Run ESMFold2 for structure prediction (only for missing structures).
+            // Batch windows per GPU task (esmfold2_batch_size) so the model is
+            // loaded once per batch instead of once per window; collate(1) (the
+            // default) preserves the original one-window-per-task behaviour.
+            structures = RUN_ESMFOLD2_FOLDING(jsons_to_fold.collate(params.esmfold2_batch_size))
         }
     } else {
         // Load existing structures from previous run

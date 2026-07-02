@@ -41,7 +41,7 @@ process GENERATE_ESMFOLD2_INPUTS {
 }
 
 process RUN_ESMFOLD2_FOLDING {
-    tag "${json.baseName}"
+    tag "${jsons[0].baseName} (batch ${jsons.size()})"
     label 'esmfold2_folding'
 
     errorStrategy 'retry'
@@ -50,10 +50,10 @@ process RUN_ESMFOLD2_FOLDING {
     publishDir "${params.af3_output_dir}/af3_outputs/complexes", mode: 'copy'
 
     input:
-    path json
+    path jsons
 
     output:
-    path "${json.baseName}/*/*"
+    path "*/*/*"
 
     script:
     def is_local = workflow.profile?.contains('local')
@@ -73,21 +73,18 @@ process RUN_ESMFOLD2_FOLDING {
             echo "ERROR: no free GPU slot (all ${params.local_num_gpus} locked)" >&2; exit 1
         fi
         export CUDA_VISIBLE_DEVICES=\$GPU_ID
-        mkdir -p ${json.baseName}
 
         python ${projectDir}/bin/run_esmfold2.py \\
-            --input ${json} \\
-            --output-dir ${json.baseName} \\
+            --inputs ${jsons} \\
+            --output-dir . \\
             --model ${params.esmfold2_model} \\
             --num-seeds ${params.num_seeds}
         """
     } else {
         """
-        mkdir -p ${json.baseName}
-
         python ${projectDir}/bin/run_esmfold2.py \\
-            --input ${json} \\
-            --output-dir ${json.baseName} \\
+            --inputs ${jsons} \\
+            --output-dir . \\
             --model ${params.esmfold2_model} \\
             --num-seeds ${params.num_seeds}
         """

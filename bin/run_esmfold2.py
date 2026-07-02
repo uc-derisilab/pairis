@@ -70,6 +70,18 @@ def output_paths(output_dir, outer_name: str):
     return cif_path, summary_path, all_seeds_path
 
 
+def input_output_dir(base_output_dir, input_path: Path, batch: bool) -> Path:
+    """Per-input output directory.
+
+    In batch mode each input nests under its own stem (``base/<stem>/``) so many
+    inputs can share a single ``--output-dir`` without colliding; in single mode
+    the base dir is used directly, preserving the legacy one-input layout
+    exactly (the Nextflow module passes ``--output-dir <json.baseName>``).
+    """
+    base = Path(base_output_dir)
+    return base / input_path.stem if batch else base
+
+
 def build_summary_confidences(chain_iptm: list, ptm: float, iptm: float,
                               best_seed: int) -> dict:
     """Build the AF3-compatible summary_confidences dict for the best seed.
@@ -215,9 +227,14 @@ def fold_seed(model, spi, num_loops: int, num_sampling_steps: int, seed: int):
         )
 
 
-def run(spec: dict, base_dir: Path, output_dir, model: str,
+def run(loaded, spec: dict, base_dir: Path, output_dir,
         num_seeds: int) -> int:
-    """Load model, fold all seeds, write AF3-compatible outputs for the best."""
+    """Fold all seeds with a pre-loaded model; write AF3 outputs for the best.
+
+    ``loaded`` is the model returned by :func:`load_model`. It is passed in
+    (rather than loaded here) so one process can fold many specs after a single
+    model load -- the dominant cost -- instead of reloading it per input.
+    """
     outer = spec["name"]
 
     # Peptide-interface ranking (chain_iptm[0]) and the AF3-compatible outputs
@@ -238,7 +255,6 @@ def run(spec: dict, base_dir: Path, output_dir, model: str,
     num_loops = config.get("num_loops", 3)
     num_sampling_steps = config.get("num_sampling_steps", 50)
 
-    loaded = load_model(model)
     spi = build_input(spec, base_dir)
 
     seed_records = []
@@ -303,8 +319,15 @@ def main(argv: list = None) -> int:
     p = argparse.ArgumentParser(
         description="Fold an ESMFold2 JobSpec across seeds; write "
                     "AF3-compatible outputs.")
-    p.add_argument("--input", required=True, type=Path,
-                   help="ESMFold2 JobSpec JSON")
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--input", type=Path,
+                     help="A single ESMFold2 JobSpec JSON")
+    src.add_argument("--inputs", type=Path, nargs="+",
+                     help="Several JobSpec JSONs folded in ONE process: the "
+                          "model is loaded once and the specs folded "
+                          "sequentially, then each input's outputs nest under "
+                          "<output-dir>/<input-stem>/. Amortises the (dominant) "
+                          "model-load cost across many small folds.")
     p.add_argument("--output-dir", type=Path, default=Path("."),
                    help="Output directory (default: .)")
     p.add_argument("--model", choices=["fast", "full"], default="fast",
@@ -315,27 +338,53 @@ def main(argv: list = None) -> int:
                    help="Replace existing outputs")
     args = p.parse_args(argv)
 
-    if not args.input.exists():
+    batch = args.inputs is not None
+    inputs = args.inputs if batch else [args.input]
+
+    # Preserve legacy single-input behaviour exactly (including exit code 2).
+    if not batch and not args.input.exists():
         print(f"ERROR: input not found: {args.input}", file=sys.stderr)
         return 2
 
-    spec = json.loads(args.input.read_text())
-    outer = spec["name"]
-    cif_path, summary_path, _ = output_paths(args.output_dir, outer)
+    # Load the model ONCE for the whole (possibly batched) invocation -- this is
+    # the expensive step (~tens of seconds), so folding many specs per load is
+    # the entire point of --inputs.
+    loaded = load_model(args.model)
 
-    # Idempotent resume: skip already-completed work unless --overwrite.
-    if not args.overwrite and cif_path.exists() and summary_path.exists():
-        print(f"Outputs already exist for {outer!r}; skipping "
-              f"(pass --overwrite to replace).")
-        return 0
+    n_ok = n_skip = n_fail = 0
+    for inp in inputs:
+        if not inp.exists():
+            print(f"ERROR: input not found: {inp}", file=sys.stderr)
+            n_fail += 1
+            continue
+        out_dir = input_output_dir(args.output_dir, inp, batch)
+        try:
+            spec = json.loads(inp.read_text())
+            outer = spec["name"]
+            cif_path, summary_path, _ = output_paths(out_dir, outer)
 
-    return run(
-        spec=spec,
-        base_dir=args.input.parent,
-        output_dir=args.output_dir,
-        model=args.model,
-        num_seeds=args.num_seeds,
-    )
+            # Idempotent resume: skip already-completed work unless --overwrite.
+            if not args.overwrite and cif_path.exists() and summary_path.exists():
+                print(f"Outputs already exist for {outer!r}; skipping "
+                      f"(pass --overwrite to replace).")
+                n_skip += 1
+                continue
+
+            run(loaded, spec, base_dir=inp.parent, output_dir=out_dir,
+                num_seeds=args.num_seeds)
+            n_ok += 1
+        except Exception as e:  # a single bad spec must not abort a batch
+            print(f"ERROR folding {inp}: {e}", file=sys.stderr)
+            n_fail += 1
+
+    if batch:
+        print(f"Batch complete: {n_ok} folded, {n_skip} skipped, "
+              f"{n_fail} failed of {len(inputs)} inputs.")
+
+    # Only hard-fail the task if nothing at all completed; otherwise let the
+    # good outputs publish and rely on Nextflow retry + the idempotent skip
+    # above to re-attempt just the unfinished specs on the next try.
+    return 1 if n_fail and (n_ok + n_skip) == 0 else 0
 
 
 if __name__ == "__main__":

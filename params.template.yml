@@ -35,10 +35,18 @@ folding_backend: "alphafold3"
 # esmfold2_hf_home: "/path/to/hf_cache"  # HF model cache; pre-download on a node with network
 # esmfold2_num_loops: 3
 # esmfold2_num_sampling_steps: 50
+# esmfold2_batch_size: 1     # windows folded per GPU task. >1 loads the ESMFold2
+#                            # model ONCE per batch instead of once per window --
+#                            # the load dominates walltime for small peptides, so
+#                            # this is a large GPU-utilisation win. Default 1 keeps
+#                            # the original one-window-per-task behaviour.
 #
 # NOTE: ESMFold2 folds num_seeds seeds SERIALLY per complex (keeping the best),
 # unlike AF3's single parallel pass. With a large num_seeds (e.g. the default 100),
 # raise folding_time accordingly — or lower num_seeds — to avoid wall-clock timeouts.
+# The SAME applies to esmfold2_batch_size: one task folds batch_size x num_seeds
+# structures, so raise folding_time proportionally when you batch (e.g. batch_size
+# 20 x num_seeds 25 => ~500 folds per task).
 
 # ===== Workflow Stages =====
 # Control which stages of the pipeline to run

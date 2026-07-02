@@ -189,5 +189,23 @@ def test_ensure_occupancy_noop_without_atom_site_loop():
     assert run_esmfold2.ensure_atom_site_occupancy(text) == text
 
 
+def test_input_output_dir_single_uses_base_unchanged():
+    # Single mode must reproduce the legacy layout: outputs go straight under
+    # the given --output-dir (the module passes <json.baseName>).
+    got = run_esmfold2.input_output_dir("ZS_window_01",
+                                        Path("/x/ZS_window_01.json"), batch=False)
+    assert got == Path("ZS_window_01")
+
+
+def test_input_output_dir_batch_nests_under_stem():
+    # Batch mode: each input nests under its own stem so a shared --output-dir
+    # can hold many inputs without collision.
+    got = run_esmfold2.input_output_dir(".", Path("/x/ZS_window_01.json"),
+                                        batch=True)
+    assert got == Path("ZS_window_01")
+    got2 = run_esmfold2.input_output_dir("out", Path("a/b/W2.json"), batch=True)
+    assert got2 == Path("out/W2")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
