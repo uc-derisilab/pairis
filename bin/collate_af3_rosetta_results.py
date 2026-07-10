@@ -100,8 +100,28 @@ def parse_pairis_filename(filename):
     return None, None, None
 
 
+def find_summary_json(af3_output_dir, outer_dir_name):
+    """Locate the summary_confidences.json for a prediction, given its outer dir name.
+
+    The path structure is:
+      {af3_output_dir}/{OUTER}/{inner}/{inner}_summary_confidences.json
+    Older AF3 lowercased the inner dir/filename; AF3 >=3.0.3 preserves the outer
+    (mixed) casing. Try both so collation works across AF3 versions.
+
+    Returns:
+        Path to summary_confidences.json or None if not found.
+    """
+    for inner_dir_name in (outer_dir_name, outer_dir_name.lower()):
+        json_path = (Path(af3_output_dir) / outer_dir_name / inner_dir_name
+                     / f"{inner_dir_name}_summary_confidences.json")
+        if json_path.exists():
+            return json_path
+
+    return None
+
+
 def find_af3_output_json(af3_output_dir, kmer_size, bcr, peptide, window):
-    """Find the summary_confidences.json file for a specific run.
+    """Find the summary_confidences.json file for a specific windowed run.
 
     Args:
         af3_output_dir: Base AF3 output directory
@@ -115,22 +135,7 @@ def find_af3_output_json(af3_output_dir, kmer_size, bcr, peptide, window):
     """
     # Convert kmer_size from directory format "15mers" to filename format "15mer"
     kmer_num = kmer_size.replace('mers', 'mer')
-
-    # Construct the directory name - PAIRIS uses uppercase for outer, lowercase for inner
-    outer_dir_name = f"{peptide}_{bcr}_{kmer_num}_window_{window}"
-    inner_dir_name = outer_dir_name.lower()
-
-    # The path structure in PAIRIS is: complexes/{PEPTIDE}_{BCR}_{KMER}mer_window_{N}/{inner}/{files}
-    base_path = Path(af3_output_dir) / outer_dir_name / inner_dir_name
-
-    if not base_path.exists():
-        return None
-
-    json_path = base_path / f"{inner_dir_name}_summary_confidences.json"
-    if json_path.exists():
-        return json_path
-
-    return None
+    return find_summary_json(af3_output_dir, f"{peptide}_{bcr}_{kmer_num}_window_{window}")
 
 
 def collate_bcr_data(af3_input_dir, af3_output_dir, rosetta_dir, bcr, kmer_size):
@@ -172,12 +177,10 @@ def collate_bcr_data(af3_input_dir, af3_output_dir, rosetta_dir, bcr, kmer_size)
             for _, row in rosetta_df.iterrows():
                 binding_energy = row.get('binding_energy', None)
                 outer_dir = f"{peptide_name}_{bcr}"
-                inner_dir = outer_dir.lower()
                 af3_input_json = Path(af3_input_dir) / f"{outer_dir}.json"
                 peptide_seq = extract_peptide_sequence(af3_input_json) if af3_input_json.exists() else None
-                base_path = Path(af3_output_dir) / outer_dir / inner_dir
-                af3_output_json = base_path / f"{inner_dir}_summary_confidences.json"
-                iptm = extract_iptm(af3_output_json) if af3_output_json.exists() else None
+                af3_output_json = find_summary_json(af3_output_dir, outer_dir)
+                iptm = extract_iptm(af3_output_json) if af3_output_json else None
                 results.append({
                     'peptide_name': peptide_name,
                     'window': None,
