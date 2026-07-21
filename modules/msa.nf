@@ -42,9 +42,22 @@ process RUN_AF3_MSA {
     def is_local = workflow.profile?.contains('local')
     def gpu_id = is_local ? (task.index % params.local_num_gpus) : 0
 
+    // Adaptive template-skip fallback: on the first attempt run the full AF3
+    // data pipeline (MSA + template search). If it fails/times out (short
+    // peptide tiles can make the template search hang past the wall clock),
+    // retry with template search disabled by injecting "templates": [] into the
+    // input JSON. MSA search still runs on the retry.
+    def strip_templates = task.attempt > 1
+    def af3_input = strip_templates ? "af3_input_no_templates.json" : "${json}"
+    def prep = strip_templates
+        ? "python3 ${projectDir}/bin/disable_af3_templates.py ${json} af3_input_no_templates.json && echo 'Attempt ${task.attempt}: retrying with template search DISABLED (templates: []) after a prior failure/timeout.'"
+        : ""
+
     if (is_local) {
         """
         mkdir -p ${json.baseName}
+
+        ${prep}
 
         apptainer exec \\
             --bind \${PWD}:/root/input \\
@@ -53,7 +66,7 @@ process RUN_AF3_MSA {
             --bind ${params.af3_db_dir}:/root/public_databases \\
             ${params.af3_sif} \\
             python /app/alphafold/run_alphafold.py \\
-                --json_path=/root/input/${json} \\
+                --json_path=/root/input/${af3_input} \\
                 --model_dir=/root/models \\
                 --db_dir=/root/public_databases \\
                 --output_dir=/root/output \\
@@ -65,8 +78,10 @@ process RUN_AF3_MSA {
 
         mkdir -p ${json.baseName}
 
+        ${prep}
+
         alphafold \\
-            --json_path=${json} \\
+            --json_path=${af3_input} \\
             --output_dir=${json.baseName} \\
             --run_inference=false
         """
