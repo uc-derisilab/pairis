@@ -189,5 +189,28 @@ def test_ensure_occupancy_noop_without_atom_site_loop():
     assert run_esmfold2.ensure_atom_site_occupancy(text) == text
 
 
+def test_plan_sample_batches_all_in_one_pass():
+    # per_pass <= 0, or >= n, => a single pass of all samples
+    assert run_esmfold2.plan_sample_batches(100, 0) == [100]
+    assert run_esmfold2.plan_sample_batches(25, 0) == [25]
+    assert run_esmfold2.plan_sample_batches(5, 10) == [5]
+
+
+def test_plan_sample_batches_chunks_with_remainder():
+    assert run_esmfold2.plan_sample_batches(100, 25) == [25, 25, 25, 25]
+    assert run_esmfold2.plan_sample_batches(10, 4) == [4, 4, 2]
+    assert run_esmfold2.plan_sample_batches(1, 1) == [1]
+
+
+def test_plan_sample_batches_always_sums_to_total():
+    for n in (1, 5, 25, 37, 100):
+        for per in (0, 1, 4, 25, 200):
+            assert sum(run_esmfold2.plan_sample_batches(n, per)) == n
+
+
+def test_plan_sample_batches_zero_samples():
+    assert run_esmfold2.plan_sample_batches(0, 10) == []
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

@@ -79,7 +79,8 @@ process RUN_ESMFOLD2_FOLDING {
             --input ${json} \\
             --output-dir ${json.baseName} \\
             --model ${params.esmfold2_model} \\
-            --num-seeds ${params.num_seeds}
+            --num-seeds ${params.num_seeds} \\
+            --samples-per-pass ${params.esmfold2_samples_per_pass}
         """
     } else {
         """
@@ -89,7 +90,8 @@ process RUN_ESMFOLD2_FOLDING {
             --input ${json} \\
             --output-dir ${json.baseName} \\
             --model ${params.esmfold2_model} \\
-            --num-seeds ${params.num_seeds}
+            --num-seeds ${params.num_seeds} \\
+            --samples-per-pass ${params.esmfold2_samples_per_pass}
         """
     }
 }

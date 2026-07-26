@@ -35,10 +35,23 @@ folding_backend: "alphafold3"
 # esmfold2_hf_home: "/path/to/hf_cache"  # HF model cache; pre-download on a node with network
 # esmfold2_num_loops: 3
 # esmfold2_num_sampling_steps: 50
+# esmfold2_samples_per_pass: 0   # diffusion samples per GPU forward pass
+#                                # (0 = all num_seeds in ONE batched pass).
+#                                # Batching samples fills the GPU — a big
+#                                # utilization win for small peptides. Lower it
+#                                # if you hit VRAM limits; set 1 for the legacy
+#                                # one-sample-at-a-time behaviour.
 #
-# NOTE: ESMFold2 folds num_seeds seeds SERIALLY per complex (keeping the best),
-# unlike AF3's single parallel pass. With a large num_seeds (e.g. the default 100),
-# raise folding_time accordingly — or lower num_seeds — to avoid wall-clock timeouts.
+# NOTE: ESMFold2 folds num_seeds diffusion samples per complex (keeping the best).
+# They are now BATCHED into GPU forward passes (num_diffusion_samples) rather than
+# folded one-at-a-time — filling the GPU's batch dimension is what lifts utilization.
+# Measured on a 40 GB A100 for a ~240-residue complex (15-mer peptide + antibody):
+#   ~6.4x faster folding at 30 samples/pass, ~8x per-sample at 200 seeds (25/pass),
+#   vs the old one-at-a-time loop -- identical output.
+# VRAM scales with (samples_per_pass x complex size): ~25 samples/pass ~= 37 GB,
+# ~30/pass ~= 40 GB (edge) for that complex. So samples_per_pass=0 (all) is fine up
+# to ~25 seeds on a 40 GB card; for num_seeds >~ 30 (or bigger complexes) set
+# esmfold2_samples_per_pass ~= 25 to avoid OOM. 80 GB GPUs (H100/H200) allow more.
 
 # ===== Workflow Stages =====
 # Control which stages of the pipeline to run

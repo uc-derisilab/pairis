@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Fold an ESMFold2 JobSpec across multiple seeds, AF3-compatible outputs.
 
-Loads the ESMFold2 model once, folds seeds 0..N-1, keeps the best seed by the
+Loads the ESMFold2 model once, folds N diffusion samples in batched GPU forward
+passes (via num_diffusion_samples), keeps the best sample by the
 peptide-interface confidence, and writes outputs in the layout PAIRIS's existing
 AlphaFold3 (AF3) downstream stages consume unchanged. For an input JSON whose
 ``name`` is OUTER, with INNER = OUTER.lower():
@@ -132,6 +133,25 @@ def pick_best(seed_records: list) -> dict:
     return max(seed_records, key=_rank_key)
 
 
+def plan_sample_batches(num_samples: int, per_pass: int) -> list:
+    """Split ``num_samples`` diffusion samples into per-forward-pass chunk sizes.
+
+    ``per_pass <= 0`` (or ``>= num_samples``) folds all samples in a single pass;
+    otherwise full chunks of ``per_pass`` plus a final remainder. Lets a caller
+    cap how many diffusion samples share one GPU forward pass (a VRAM valve)
+    while still producing ``num_samples`` total. Pure / GPU-free (unit-tested).
+    """
+    if num_samples <= 0:
+        return []
+    if not per_pass or per_pass <= 0 or per_pass >= num_samples:
+        return [num_samples]
+    full, rem = divmod(num_samples, per_pass)
+    chunks = [per_pass] * full
+    if rem:
+        chunks.append(rem)
+    return chunks
+
+
 # ---------------------------------------------------------------------------
 # GPU path (imports torch/esm/transformers lazily; not exercised in tests)
 # ---------------------------------------------------------------------------
@@ -200,24 +220,41 @@ def build_input(spec: dict, base_dir: Path):
     return ib.StructurePredictionInput(sequences=sequences)
 
 
-def fold_seed(model, spi, num_loops: int, num_sampling_steps: int, seed: int):
-    """Fold a single seed and return the model result object."""
+def fold_samples(model, spi, num_loops: int, num_sampling_steps: int,
+                 num_samples: int, samples_per_pass: int = 0) -> list:
+    """Fold ``num_samples`` diffusion samples of one input, batched on the GPU.
+
+    Instead of ``num_samples`` separate single-sample ``fold()`` calls (each
+    ``num_diffusion_samples=1``, i.e. batch-of-one, which barely occupies the
+    GPU for small peptides), request ``num_diffusion_samples=k`` per forward
+    pass so the model works a full batch at once. ``samples_per_pass`` caps
+    ``k`` for VRAM (``<=0`` folds all samples in one pass). Returns a flat list
+    of per-sample result objects (the same objects the old per-seed loop
+    produced), so downstream ranking / output logic is unchanged.
+    """
     import torch
     from esm.models.esmfold2 import ESMFold2InputBuilder
 
-    with torch.inference_mode():
-        return ESMFold2InputBuilder().fold(
-            model,
-            spi,
-            num_loops=num_loops,
-            num_sampling_steps=num_sampling_steps,
-            seed=seed,
-        )
+    builder = ESMFold2InputBuilder()
+    results = []
+    for chunk_idx, k in enumerate(plan_sample_batches(num_samples,
+                                                      samples_per_pass)):
+        with torch.inference_mode():
+            out = builder.fold(
+                model,
+                spi,
+                num_loops=num_loops,
+                num_sampling_steps=num_sampling_steps,
+                num_diffusion_samples=k,
+                seed=chunk_idx,
+            )
+        results.extend(out if isinstance(out, list) else [out])
+    return results
 
 
 def run(spec: dict, base_dir: Path, output_dir, model: str,
-        num_seeds: int) -> int:
-    """Load model, fold all seeds, write AF3-compatible outputs for the best."""
+        num_seeds: int, samples_per_pass: int = 0) -> int:
+    """Load model, fold N samples (batched), write AF3 outputs for the best."""
     outer = spec["name"]
 
     # Peptide-interface ranking (chain_iptm[0]) and the AF3-compatible outputs
@@ -241,31 +278,34 @@ def run(spec: dict, base_dir: Path, output_dir, model: str,
     loaded = load_model(model)
     spi = build_input(spec, base_dir)
 
+    # Fold all `num_seeds` samples in batched GPU forward passes instead of one
+    # single-sample fold() per seed. num_diffusion_samples fills the batch
+    # dimension, which is what keeps the GPU busy for these small peptide inputs;
+    # samples_per_pass caps how many samples share one pass (VRAM valve).
+    batches = plan_sample_batches(num_seeds, samples_per_pass)
+    t0 = time.perf_counter()
+    print(f"Folding {outer!r} ({len(spec['sequences'])} chains): "
+          f"{num_seeds} samples in passes of {batches}...")
+    results = fold_samples(loaded, spi, num_loops, num_sampling_steps,
+                           num_seeds, samples_per_pass)
+    print(f"  {len(results)} samples folded in {time.perf_counter() - t0:.1f}s")
+
     seed_records = []
     best_record = None
     best_mmcif = None
-    for seed in range(num_seeds):
-        t0 = time.perf_counter()
-        print(f"Folding {outer!r} seed {seed} "
-              f"({len(spec['sequences'])} chains)...")
-        result = fold_seed(loaded, spi, num_loops, num_sampling_steps, seed)
-        print(f"  seed {seed} done in {time.perf_counter() - t0:.1f}s")
-
+    for i, result in enumerate(results):
         pair_chains_iptm = result.pair_chains_iptm.detach().cpu().tolist()
         chain_iptm = compute_chain_iptm(pair_chains_iptm)
-        ptm = float(result.ptm)
-        iptm = float(result.iptm)
         record = {
-            "seed": seed,
+            "seed": i,
             "chain_iptm": chain_iptm,
-            "ptm": ptm,
-            "iptm": iptm,
+            "ptm": float(result.ptm),
+            "iptm": float(result.iptm),
         }
         seed_records.append(record)
 
-        # Track the running best by the shared ranking rule and capture its
-        # mmCIF as a host string now, so each seed's GPU result can go out of
-        # scope this iteration (peak memory = one live result).
+        # Track the running best by the shared ranking rule; capture its mmCIF
+        # now so non-best results can be dropped.
         if best_record is None or _rank_key(record) > _rank_key(best_record):
             best_record = record
             best_mmcif = result.complex.to_mmcif()
@@ -310,7 +350,13 @@ def main(argv: list = None) -> int:
     p.add_argument("--model", choices=["fast", "full"], default="fast",
                    help="ESMFold2 model variant (default: fast)")
     p.add_argument("--num-seeds", type=int, default=5,
-                   help="Number of seeds to fold (seeds 0..N-1, default: 5)")
+                   help="Number of diffusion samples to fold, keeping the best "
+                        "(default: 5); batched into GPU forward passes.")
+    p.add_argument("--samples-per-pass", type=int, default=0,
+                   help="Max diffusion samples per GPU forward pass "
+                        "(0 = all --num-seeds at once). Lower to cap VRAM; "
+                        "higher = better GPU utilization. Set to 1 to reproduce "
+                        "the legacy one-sample-at-a-time behaviour.")
     p.add_argument("--overwrite", action="store_true",
                    help="Replace existing outputs")
     args = p.parse_args(argv)
@@ -335,6 +381,7 @@ def main(argv: list = None) -> int:
         output_dir=args.output_dir,
         model=args.model,
         num_seeds=args.num_seeds,
+        samples_per_pass=args.samples_per_pass,
     )
 
 
