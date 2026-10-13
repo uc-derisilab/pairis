@@ -230,8 +230,10 @@ workflow {
             structures = RUN_ESMFOLD2_FOLDING(jsons_to_fold)
         }
     } else {
-        // Load existing structures from previous run
-        structures = Channel.fromPath("${params.af3_output_dir}/af3_outputs/complexes/*/*/*_model*.cif")
+        // Structures come from a previous run. Downstream only needs the
+        // complexes directory, so emit it directly instead of globbing every
+        // *_model.cif (a ~1-day walk for ~120k complexes on shared storage).
+        structures = Channel.of(file("${params.af3_output_dir}/af3_outputs/complexes"))
     }
 
     // ===== Phase 3: Analysis =====
