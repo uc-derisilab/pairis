@@ -25,7 +25,7 @@ process RUN_ROSETTA {
     label 'rosetta'
 
     errorStrategy 'retry'
-    maxRetries 2
+    maxRetries 10
 
     publishDir "${params.af3_output_dir}/results/rosetta/${kmer_size}/${bcr_name}", mode: 'copy'
 
