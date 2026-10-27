@@ -29,6 +29,10 @@ machine, so this demo cannot be run on a typical desktop without a GPU.
 
 ## Run the demo (single GPU server)
 
+`params.yml` is set up for one machine with one GPU. To run on SLURM instead, drop
+`-profile local` from the command; the `af3_sif`/`af3_model_dir`/`af3_db_dir`/`local_*`
+settings are then ignored, and AlphaFold3 comes from the cluster module (`af3_module`).
+
 1. Edit `params.yml` and fill in the placeholder paths: `af3_output_dir`,
    `af3_sif`, `af3_model_dir`, `af3_db_dir`, and `local_venv`.
 2. Create the output directory you chose for `af3_output_dir`:
@@ -80,7 +84,7 @@ are recorded in `results/reports/trace.txt` and `report.html`.
 ## Alternative backend: ESMFold2
 
 Two ready-to-edit configs run this same 9E10 / c-myc demo with ESMFold2 instead
-of AlphaFold3 (see the [folding-backend docs](../README.md#folding-backend)):
+of AlphaFold3 (see [Using ESMFold2](../README.md#using-esmfold2-instead-of-alphafold3)):
 
 - [`params.esmfold2.yml`](params.esmfold2.yml) — **ESMFold2-Fast**, MSA-free.
   Skips Stage 1 entirely and needs **no AlphaFold3 install or databases** — only
@@ -96,6 +100,8 @@ of AlphaFold3 (see the [folding-backend docs](../README.md#folding-backend)):
   cd demo
   nextflow run ../main.nf -params-file params.esmfold2.full.yml   # SLURM
   ```
+  For a single server, add `-profile local` and the `af3_sif`, `af3_model_dir`,
+  `af3_db_dir` and `local_venv` settings from `params.yml`.
 
 Both write `*_model.cif` + `*_summary_confidences.json` in the same layout as the
 AlphaFold3 backend, so the optional Rosetta + collation steps run unchanged.
