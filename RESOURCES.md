@@ -1,138 +1,66 @@
-# PAIRIS Pipeline Default Resources
+# PAIRIS Compute Resources
 
-This document describes the default computational resources allocated to each process in the PAIRIS pipeline.
+Default CPUs, memory, time limits and SLURM partitions for each step, and how to change them.
+All defaults live in `nextflow.config`; override any `*_cpus`/`*_memory`/`*_time`/`*_partition`
+value in `params.yml` or on the command line (e.g. `--folding_time 2.h`).
 
-## Process Resource Allocation
+## Defaults
 
-| Stage | Process | CPUs | Memory | Time | Partition | GPU | Array Size |
-|-------|---------|------|--------|------|-----------|-----|------------|
-| **MSA Generation** | GENERATE_MSA_INPUTS | 1 | 4 GB | 30m | preempted | - | - |
-| | RUN_AF3_MSA | 2 | 16 GB | 1h | cpu | - | 10000 |
-| | EXTRACT_MSAS | 2 | 16 GB | 45m | cpu | - | - |
-| **Structure Prediction** | GENERATE_COMPLEX_INPUTS | 1 | 4 GB | 30m | preempted | - | - |
-| | RUN_AF3_FOLDING | 2 | 16 GB | 40m | gpu | 1 | 10000 |
-| **Rosetta Analysis** | GROUP_STRUCTURES_BY_BCR | 1 | 4 GB | 30m | preempted | - | - |
-| | RUN_ROSETTA | 4 | 16 GB | 8h | cpu | - | 10000 |
-| | COLLATE_RESULTS | 1 | 4 GB | 30m | preempted | - | - |
+| Stage | Step | CPUs | Memory | Time | Partition | GPU | Retries |
+|-------|------|------|--------|------|-----------|-----|---------|
+| 1. MSAs | GENERATE_MSA_INPUTS | 1 | 4 GB | 5m | `msa_partition` (cpu) | - | - |
+| | RUN_AF3_MSA | `msa_cpus` 2 | `msa_memory` 16 GB | `msa_time` 1h | `msa_partition` (cpu) | - | 3 |
+| | EXTRACT_MSAS | `extract_cpus` 2 | `extract_memory` 16 GB | `extract_time` 60m | `extract_partition` (cpu) | - | - |
+| 2. Folding | GENERATE_COMPLEX_INPUTS / GENERATE_ESMFOLD2_INPUTS | 1 | 4 GB | 5m | `msa_partition` (cpu) | - | - |
+| | RUN_AF3_FOLDING / RUN_ESMFOLD2_FOLDING | `folding_cpus` 1 | `folding_memory` 16 GB | `folding_time` 40m | `folding_partition` (gpu) | `folding_gpu` 1 | 10 |
+| 3. Rosetta | GROUP_STRUCTURES_BY_BCR | 1 | 8 GB | 2h | `grouping_partition` (cpu) | - | - |
+| | RUN_ROSETTA | `rosetta_cpus` 4 | `rosetta_memory` 16 GB | `rosetta_time` 8h | `rosetta_partition` (cpu) | - | 10 |
+| | COLLATE_RESULTS | 1 | 4 GB | 45m | `partition` (preempted) | - | - |
 
-## Global Resource Limits
+Names in `code` are the parameters you can override. Retries resubmit a failed job with the
+**same** resources, so they help with transient failures (node preemption, storage hiccups) but
+not with jobs that run out of memory or time. For those, raise the limit.
 
-- **Max Memory**: 128 GB
-- **Max CPUs**: 32
-- **Max Time**: 24 hours
-- **Default Partition**: preempted
-- **SLURM Queue Size**: 500
-- **Submit Rate Limit**: 10 submissions per second
+## Common adjustments
 
-## Process Details
-
-### MSA Generation Stage
-
-**GENERATE_MSA_INPUTS**
-- Generates AlphaFold3 MSA input JSON files
-- Lightweight process that creates input files only
-- No special labels
-
-**RUN_AF3_MSA** (label: `af3_msa`)
-- Runs AlphaFold3 MSA generation only (no inference)
-- Uses array submission for parallel processing (up to 10,000 jobs)
-- Retry strategy: 3 attempts on failure
-
-**EXTRACT_MSAS** (label: `extract`)
-- Extracts and organizes MSA files from AF3 output
-- Creates MSA index for complex generation
-
-### Structure Prediction Stage
-
-**GENERATE_COMPLEX_INPUTS**
-- Generates AlphaFold3 complex input JSON files
-- Creates peptide-antibody complex inputs with MSA references
-- Lightweight process
-
-**RUN_AF3_FOLDING** (label: `af3_folding`)
-- Runs AlphaFold3 structure prediction on GPU
-- Uses precomputed MSAs (run_data_pipeline=false)
-- Requires 1 GPU via `--gres=gpu:1`
-- Array submission for massive parallelization (up to 10,000 jobs)
-- Retry strategy: 3 attempts on failure
-- Automatically cleans up large intermediate files
-
-### Rosetta Analysis Stage
-
-**GROUP_STRUCTURES_BY_BCR**
-- Groups AF3 structures by (kmer_size, BCR, peptide) for analysis
-- Lightweight process that creates grouping metadata
-
-**RUN_ROSETTA** (label: `rosetta`)
-- Performs Rosetta InterfaceAnalyzer energy calculations
-- Most resource-intensive CPU process (8 hour time limit)
-- Uses the `rosetta_conda_env` environment instead of the default `conda_env`
-- Array submission for parallel processing (up to 10,000 jobs)
-- Retry strategy: 2 attempts on failure
-
-**COLLATE_RESULTS**
-- Combines AF3 metrics (iptm, peptide sequences) with Rosetta energies
-- Lightweight process that creates final summary CSVs
-
-## Customizing Resources
-
-Resources can be overridden in `params.yml` or via command line:
-
-### MSA Generation
 ```yaml
-msa_cpus: 2
-msa_memory: '16.GB'
-msa_time: '1.h'
+# Folding timing out (large complexes, or ESMFold2 with many seeds, which run one after another)
+folding_time: '2.h'
+
+# Rosetta running out of memory
+rosetta_memory: '32.GB'
+
+# Your cluster uses different partition names
 msa_partition: 'cpu'
-```
-
-### Structure Folding
-```yaml
-folding_cpus: 2
-folding_memory: '16.GB'
-folding_time: '40.m'
-folding_gpu: 1
 folding_partition: 'gpu'
-```
-
-### Rosetta Analysis
-```yaml
-rosetta_cpus: 4
-rosetta_memory: '16.GB'
-rosetta_time: '8.h'
 rosetta_partition: 'cpu'
+partition: 'preempted'   # anything not listed above
 ```
 
-### Extraction
-```yaml
-extract_cpus: 2
-extract_memory: '16.GB'
-extract_time: '45.m'
-extract_partition: 'cpu'
-```
+## How jobs are submitted
 
-## Environment Configuration
+- **Array jobs:** the big steps (MSAs, folding, Rosetta, input generation) are submitted as
+  SLURM array jobs: one array with one task per sequence, complex or Rosetta group,
+  instead of thousands of separate jobs.
+- **Queue limits:** Nextflow keeps at most 500 jobs queued and submits at most 10 per second
+  (`executor` block in `nextflow.config`).
+- **Environments:** most steps run `module load mamba && mamba activate <conda_env>` (default
+  `pairis`). RUN_ROSETTA uses `rosetta_conda_env` and ESMFold2 folding uses `esmfold2_conda_env`.
+  AlphaFold3 steps load the module set by `af3_module` (default `alphafold/3.0.1-23-g792e61e`).
+  With `-profile local` this differs: see below.
 
-- **Default Environment**: All processes run `mamba activate <conda_env>` (default `pairis`)
-- **Rosetta Environment**: RUN_ROSETTA runs `mamba activate <rosetta_conda_env>` (default `rosetta`)
-- **AlphaFold3**: RUN_AF3_MSA and RUN_AF3_FOLDING load `module load alphafold/3.0.1-23-g792e61e`
+## Running on a single server (`-profile local`)
 
-## Array Job Limits
+There is no SLURM, so partitions and arrays are ignored. Instead, these limit how many jobs run
+at once:
 
-Processes with `array: 10000` can submit up to 10,000 parallel jobs:
-- RUN_AF3_MSA: One job per peptide sequence/window
-- RUN_AF3_FOLDING: One job per peptide-antibody complex
-- RUN_ROSETTA: One job per (kmer_size, BCR, peptide) combination
+| Parameter | Default | Limits |
+|-----------|---------|--------|
+| `local_max_parallel_folding` | 4 | concurrent GPU folding jobs and AF3 MSA jobs |
+| `local_max_parallel_cpu` | 8 | concurrent Rosetta and input-generation jobs |
+| `max_cpus` / `max_memory` | 32 / 128 GB | total the pipeline may use on the machine |
 
-This allows for massive scalability when analyzing hundreds of BCRs or peptide sequences.
-
-## Notes
-
-1. **GPU Requirement**: Only RUN_AF3_FOLDING requires GPU resources
-2. **Retry Logic**: AF3 processes retry up to 3 times, Rosetta retries up to 2 times
-3. **Partition Strategy**:
-   - `preempted`: Lightweight processes (generation, grouping, collation)
-   - `cpu`: CPU-intensive processes (MSA, extraction, Rosetta)
-   - `gpu`: GPU-required processes (folding)
-4. **Time Allocation**: Rosetta analysis has the longest time limit (8 hours) due to energy calculations
-5. **Resource Configuration**: See `nextflow.config` for full configuration details
+Environments in single-server mode: the general steps activate the venv at `local_venv`, and
+AlphaFold3 runs from the `af3_sif` container. Rosetta and ESMFold2 activate the same conda envs
+as on SLURM, but through `conda shell.bash hook` rather than `module load`, so `conda` must be
+on your `PATH`.
